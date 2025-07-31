@@ -9,7 +9,8 @@ import (
 
 func main() {
 	stdout := writer.NewStdoutWriter()
-	fwriter, err := writer.NewFileWriter("logs/app.json", 10, 2, nil)
+	comp := writer.Gz
+	fwriter, err := writer.NewFileWriter("logs/app.json", 10, 2, writer.RotateDaily, &comp)
 	if err != nil {
 		log.Fatalf("file error: %v", err)
 	}
