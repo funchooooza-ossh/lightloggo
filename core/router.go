@@ -1,24 +1,104 @@
 package core
 
+import (
+	"context"
+	"sync"
+)
+
+// RouteProcessor связывает форматтер и writer, обрабатывает лог-события асинхронно.
 type RouteProcessor struct {
 	Formatter      FormatProcessor
 	Writer         WriteProcessor
 	LevelThreshold LogLevel
+
+	queue  chan LogRecord
+	closed bool
+	mu     sync.RWMutex
 }
 
+// FlushableWriter — интерфейс для writer'ов с поддержкой Flush().
+type FlushableWriter interface {
+	Write([]byte) error
+	Flush() error
+}
+
+// NewRouteProcessor создаёт маршрутизатор логов с указанным форматтером и writer'ом.
+func NewRouteProcessor(formatter FormatProcessor, writer WriteProcessor, level LogLevel) *RouteProcessor {
+	return &RouteProcessor{
+		Formatter:      formatter,
+		Writer:         writer,
+		LevelThreshold: level,
+		queue:          make(chan LogRecord, 1024),
+	}
+}
+
+// ShouldLog проверяет, подходит ли уровень события для этого роута.
 func (r *RouteProcessor) ShouldLog(record LogRecord) bool {
 	return record.Level >= r.LevelThreshold
 }
 
-func (r *RouteProcessor) Process(record LogRecord) error {
-	if !r.ShouldLog(record) {
-		return nil
+// Enqueue отправляет событие в очередь логирования (если не закрыто).
+func (r *RouteProcessor) Enqueue(record LogRecord) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.closed {
+		return
 	}
 
-	formatted, err := r.Formatter.Format(record)
-	if err != nil {
-		return err
+	select {
+	case r.queue <- record:
+	default:
+		// очередь переполнена — можно добавить метрику/лог
+	}
+}
+
+// Start запускает обработку очереди в отдельной горутине.
+func (r *RouteProcessor) Start(ctx context.Context, wg *sync.WaitGroup) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer r.drainQueue()
+
+		for {
+			select {
+			case rec, ok := <-r.queue:
+				if !ok {
+					return
+				}
+				if data, err := r.Formatter.Format(rec); err == nil {
+					_ = r.Writer.Write(data)
+				}
+			case <-ctx.Done():
+				// просто ждём закрытия очереди, drain сделает остальное
+				return
+			}
+		}
+	}()
+}
+
+// drainQueue считывает остатки очереди и вызывает Flush().
+func (r *RouteProcessor) drainQueue() {
+	for rec := range r.queue {
+		if data, err := r.Formatter.Format(rec); err == nil {
+			_ = r.Writer.Write(data)
+		}
 	}
 
-	return r.Writer.Write(formatted)
+	if f, ok := r.Writer.(FlushableWriter); ok {
+		_ = f.Flush()
+	}
+}
+
+// Close завершает работу: закрывает очередь (если ещё нет).
+func (r *RouteProcessor) Close() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return
+	}
+
+	close(r.queue)
+	r.closed = true
 }
