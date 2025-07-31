@@ -1,21 +1,55 @@
 package core
 
 import (
+	"context"
+	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 )
 
+// Logger управляет маршрутизацией логов и жизненным циклом воркеров.
 type Logger struct {
-	Routes []RouteProcessor
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	routes []*RouteProcessor
 }
 
+// NewLogger создаёт асинхронный логгер с переданными маршрутизаторами.
+func NewLogger(routes ...*RouteProcessor) *Logger {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	logger := &Logger{
+		ctx:    ctx,
+		cancel: cancel,
+		routes: routes,
+	}
+
+	for _, r := range routes {
+		r.Start(ctx, &logger.wg)
+	}
+
+	return logger
+}
+
+// Close корректно завершает все воркеры, дожидаясь полной обработки очередей и вызова Flush().
+func (l *Logger) Close() {
+	for _, r := range l.routes {
+		r.Close()
+	}
+	l.cancel()
+	l.wg.Wait()
+}
+
+// log формирует LogRecord и отправляет его в подходящие маршруты.
 func (l *Logger) log(level LogLevel, msg string, fields map[string]interface{}) {
-	// Получить caller
 	_, file, line, ok := runtime.Caller(2)
 	var caller string
 	if ok {
-		caller = file + ":" + itoa(line)
+		caller = filepath.Base(file) + ":" + strconv.Itoa(line)
 	}
 
 	record := LogRecord{
@@ -26,21 +60,39 @@ func (l *Logger) log(level LogLevel, msg string, fields map[string]interface{}) 
 		Caller:    caller,
 	}
 
-	for _, route := range l.Routes {
-		_ = route.Process(record) // errors можно логировать позже
+	for _, route := range l.routes {
+		if route.ShouldLog(record) {
+			route.Enqueue(record)
+		}
 	}
 }
 
-// Упрощённые sugar-методы
-func (l *Logger) Trace(msg string, fields map[string]interface{}) { l.log(Trace, msg, fields) }
-func (l *Logger) Debug(msg string, fields map[string]interface{}) { l.log(Debug, msg, fields) }
-func (l *Logger) Info(msg string, fields map[string]interface{})  { l.log(Info, msg, fields) }
-func (l *Logger) Warn(msg string, fields map[string]interface{})  { l.log(Warning, msg, fields) }
-func (l *Logger) Error(msg string, fields map[string]interface{}) { l.log(Error, msg, fields) }
-func (l *Logger) Exception(msg string, fields map[string]interface{}) {
-	l.log(Exception, msg, fields)
+// Trace отправляет TRACE-сообщение.
+func (l *Logger) Trace(msg string, fields map[string]interface{}) {
+	l.log(Trace, msg, fields)
 }
 
-func itoa(i int) string {
-	return strconv.Itoa(i)
+// Debug отправляет DEBUG-сообщение.
+func (l *Logger) Debug(msg string, fields map[string]interface{}) {
+	l.log(Debug, msg, fields)
+}
+
+// Info отправляет INFO-сообщение.
+func (l *Logger) Info(msg string, fields map[string]interface{}) {
+	l.log(Info, msg, fields)
+}
+
+// Warn отправляет WARNING-сообщение.
+func (l *Logger) Warn(msg string, fields map[string]interface{}) {
+	l.log(Warning, msg, fields)
+}
+
+// Error отправляет ERROR-сообщение.
+func (l *Logger) Error(msg string, fields map[string]interface{}) {
+	l.log(Error, msg, fields)
+}
+
+// Exception отправляет сообщение об исключении.
+func (l *Logger) Exception(msg string, fields map[string]interface{}) {
+	l.log(Exception, msg, fields)
 }
