@@ -4,18 +4,26 @@ import (
 	"funchooooza-ossh/loggo/core"
 	"funchooooza-ossh/loggo/core/formatter"
 	"funchooooza-ossh/loggo/core/writer"
+	"log"
 )
 
 func main() {
 	stdout := writer.NewStdoutWriter()
+	fwriter, err := writer.NewFileWriter("logs/app.json")
+	if err != nil {
+		log.Fatalf("file error: %v", err)
+	}
 	json := formatter.NewJsonFormatter(nil)
+	text := formatter.NewTextFormatter(nil)
 
-	route := core.NewRouteProcessor(json, stdout, core.Debug)
-	logger := core.NewLogger(route)
+	stdout_route := core.NewRouteProcessor(text, stdout, core.Debug)
+	file_route := core.NewRouteProcessor(json, fwriter, core.Debug)
+	logger := core.NewLogger(stdout_route, file_route)
 
 	defer logger.Close() // вот где мы делаем закрытие очередей
 
 	logger.Info("hello", map[string]interface{}{
-		"env": "dev",
+		"env":   "dev",
+		"stage": "test",
 	})
 }
