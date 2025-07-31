@@ -2,27 +2,23 @@ package formatter
 
 import (
 	"bytes"
-	core "funchooooza-ossh/loggo/core"
+	"funchooooza-ossh/loggo/core"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// JsonFormatter сериализует LogRecord в JSON-подобный формат без зависимостей.
 type JsonFormatter struct{}
 
+// NewJsonFormatter создаёт JsonFormatter.
 func NewJsonFormatter() *JsonFormatter {
 	return &JsonFormatter{}
 }
 
-func escapeString(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
-}
-
+// Format преобразует LogRecord в JSON-байты.
 func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 	var b bytes.Buffer
-
 	b.WriteByte('{')
 
 	// "level":"INFO"
@@ -35,7 +31,7 @@ func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 	b.WriteString(r.Timestamp.Format(time.RFC3339Nano))
 	b.WriteByte('"')
 
-	// ,"msg":"user_login"
+	// ,"msg":"message text"
 	b.WriteString(`,"msg":"`)
 	b.WriteString(escapeString(r.Message))
 	b.WriteByte('"')
@@ -53,22 +49,34 @@ func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 		b.WriteByte('"')
 		b.WriteString(escapeString(k))
 		b.WriteString(`":`)
-		switch val := v.(type) {
-		case string:
-			b.WriteByte('"')
-			b.WriteString(escapeString(val))
-			b.WriteByte('"')
-		case int, int32, int64:
-			b.WriteString(toIntString(val))
-		case float64, float32:
-			b.WriteString(toFloatString(val))
-		case bool:
-			b.WriteString(strconv.FormatBool(val))
-		default:
-			b.WriteString(`"unsupported_type"`)
-		}
+		writeValue(&b, v)
 	}
 
 	b.WriteByte('}')
 	return b.Bytes(), nil
+}
+
+// writeValue пишет значение в json-буфер в зависимости от типа.
+func writeValue(b *bytes.Buffer, v interface{}) {
+	switch val := v.(type) {
+	case string:
+		b.WriteByte('"')
+		b.WriteString(escapeString(val))
+		b.WriteByte('"')
+	case int, int32, int64:
+		b.WriteString(toIntString(val))
+	case float64, float32:
+		b.WriteString(toFloatString(val))
+	case bool:
+		b.WriteString(strconv.FormatBool(val))
+	default:
+		b.WriteString(`"unsupported_type"`)
+	}
+}
+
+// escapeString экранирует кавычки и обратные слеши.
+func escapeString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
