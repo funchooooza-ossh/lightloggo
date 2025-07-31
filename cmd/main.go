@@ -7,18 +7,15 @@ import (
 )
 
 func main() {
-	logger := core.Logger{
-		Routes: []core.RouteProcessor{
-			{
-				Formatter:      formatter.NewJsonFormatter(),
-				Writer:         writer.NewStdoutWriter(),
-				LevelThreshold: core.Debug,
-			},
-		},
-	}
+	stdout := writer.NewStdoutWriter()
+	json := formatter.NewJsonFormatter()
 
-	logger.Info("user_login", map[string]interface{}{
-		"user_id": 123,
-		"ip":      "127.0.0.1",
+	route := core.NewRouteProcessor(json, stdout, core.Debug)
+	logger := core.NewLogger(route)
+
+	defer logger.Close() // вот где мы делаем закрытие очередей
+
+	logger.Info("hello", map[string]interface{}{
+		"env": "dev",
 	})
 }
