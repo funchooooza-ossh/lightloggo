@@ -9,7 +9,7 @@ import (
 
 func main() {
 	stdout := writer.NewStdoutWriter()
-	fwriter, err := writer.NewFileWriter("logs/app.json")
+	fwriter, err := writer.NewFileWriter("logs/app.json", 10, 2, nil)
 	if err != nil {
 		log.Fatalf("file error: %v", err)
 	}
@@ -26,4 +26,11 @@ func main() {
 		"env":   "dev",
 		"stage": "test",
 	})
+
+	for i := 0; i < 1_000_000; i++ {
+		logger.Info("ping", map[string]interface{}{
+			"env":   "dev",
+			"stage": "test",
+		})
+	}
 }
