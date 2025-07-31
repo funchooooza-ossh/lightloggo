@@ -2,7 +2,7 @@ import ctypes
 import os
 
 # Загрузка loggo.so
-lib_path = os.path.join(os.path.dirname(__file__), "../loggo.so")
+lib_path = os.path.join(os.path.dirname(__file__), "loggo.so")
 lib = ctypes.CDLL(lib_path)
 
 # Тип указателя из Go
