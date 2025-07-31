@@ -13,28 +13,40 @@ import (
 	"time"
 )
 
+type RotateInterval string
+
+const (
+	RotateDaily   RotateInterval = "day"
+	RotateWeekly  RotateInterval = "week"
+	RotateMonthly RotateInterval = "month"
+)
+
 type Compress string
 
 const (
-	gz   Compress = "gz"
-	null Compress = ""
+	Gz   Compress = "gz"
+	Null Compress = ""
 )
 
 type FileWriter struct {
 	path       string
 	maxSizeMB  int64
 	maxBackups int
-	compress   Compress
 
+	compress   Compress
 	compressor core.Compressor
-	mu         sync.Mutex
-	file       *os.File
-	writer     *bufio.Writer
-	size       int64
+
+	mu     sync.Mutex
+	file   *os.File
+	writer *bufio.Writer
+	size   int64
+
+	rotateInterval RotateInterval
+	nextRotateTime time.Time
 }
 
 // NewFileWriter создаёт новый лог-файл с опциями ротации и сжатия.
-func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress *Compress) (*FileWriter, error) {
+func NewFileWriter(path string, maxSizeMB int64, maxBackups int, interval RotateInterval, compress *Compress) (*FileWriter, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
@@ -45,7 +57,7 @@ func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress *Compr
 
 	if compress != nil {
 		switch *compress {
-		case gz:
+		case Gz:
 			compressVal = "gz"
 			comp = &compressor.GzipCompressor{}
 		// можно добавить другие варианты позже
@@ -65,15 +77,18 @@ func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress *Compr
 		return nil, statErr
 	}
 
+	now := time.Now()
 	return &FileWriter{
-		path:       path,
-		maxSizeMB:  maxSizeMB,
-		maxBackups: maxBackups,
-		compress:   Compress(compressVal),
-		compressor: comp,
-		file:       f,
-		writer:     bufio.NewWriter(f),
-		size:       info.Size(),
+		path:           path,
+		maxSizeMB:      maxSizeMB,
+		maxBackups:     maxBackups,
+		compress:       Compress(compressVal),
+		compressor:     comp,
+		file:           f,
+		writer:         bufio.NewWriter(f),
+		size:           info.Size(),
+		rotateInterval: interval,
+		nextRotateTime: nextRotation(now, interval),
 	}, nil
 }
 
@@ -81,7 +96,7 @@ func (fw *FileWriter) Write(p []byte) error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
-	if fw.shouldRotate(len(p)) {
+	if fw.shouldRotateByTime(time.Now()) || fw.shouldRotateBySize(len(p)) {
 		if err := fw.rotate(); err != nil {
 			return err
 		}
@@ -107,7 +122,31 @@ func (fw *FileWriter) Close() error {
 
 // --- rotation logic ---
 
-func (fw *FileWriter) shouldRotate(incoming int) bool {
+func nextRotation(t time.Time, interval RotateInterval) time.Time {
+	switch interval {
+	case RotateDaily:
+		return t.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	case RotateWeekly:
+		offset := int(time.Monday - t.Weekday())
+		if offset <= 0 {
+			offset += 7
+		}
+		return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location()).AddDate(0, 0, offset)
+	case RotateMonthly:
+		return time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location())
+	default:
+		return time.Time{} // zero → no time rotation
+	}
+}
+
+func (fw *FileWriter) shouldRotateByTime(now time.Time) bool {
+	if fw.rotateInterval == "" {
+		return false
+	}
+	return now.After(fw.nextRotateTime)
+}
+
+func (fw *FileWriter) shouldRotateBySize(incoming int) bool {
 	return fw.maxSizeMB > 0 && fw.size+int64(incoming) > fw.maxSizeMB*1024*1024
 }
 
