@@ -1,3 +1,4 @@
 *.so
 *.h
 test
+__pycache__
