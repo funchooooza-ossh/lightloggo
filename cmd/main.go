@@ -8,7 +8,7 @@ import (
 
 func main() {
 	stdout := writer.NewStdoutWriter()
-	json := formatter.NewJsonFormatter()
+	json := formatter.NewJsonFormatter(nil)
 
 	route := core.NewRouteProcessor(json, stdout, core.Debug)
 	logger := core.NewLogger(route)

@@ -9,11 +9,23 @@ import (
 )
 
 // JsonFormatter сериализует LogRecord в JSON-подобный формат без зависимостей.
-type JsonFormatter struct{}
+type JsonFormatter struct {
+	style *core.FormatStyle
+}
 
-// NewJsonFormatter создаёт JsonFormatter.
-func NewJsonFormatter() *JsonFormatter {
-	return &JsonFormatter{}
+// NewJsonFormatter создаёт JsonFormatter с заданным стилем (или дефолтным).
+func NewJsonFormatter(style *core.FormatStyle) *JsonFormatter {
+	if style == nil {
+		style = &core.FormatStyle{
+			ColorKeys:   false,
+			ColorValues: false,
+			ColorLevel:  false,
+			KeyColor:    "\033[36m", // голубой
+			ValueColor:  "\033[37m", // белый/серый
+			Reset:       "\033[0m",
+		}
+	}
+	return &JsonFormatter{style: style}
 }
 
 // Format преобразует LogRecord в JSON-байты.
@@ -21,35 +33,48 @@ func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteByte('{')
 
-	// "level":"INFO"
-	b.WriteString(`"level":"`)
+	// "level":"INFO" (с цветом уровня)
+	b.WriteString(`"`)
+	b.WriteString(f.colorizeKey("level"))
+	b.WriteString(`":"`)
+	if f.style.ColorLevel {
+		b.WriteString(r.Level.Color())
+	}
 	b.WriteString(r.Level.String())
+	if f.style.ColorLevel {
+		b.WriteString(f.style.Reset)
+	}
 	b.WriteByte('"')
 
-	// ,"ts":"2025-07-31T12:00:00Z"
-	b.WriteString(`,"ts":"`)
+	// ,"ts":"..."
+	b.WriteString(`,"`)
+	b.WriteString(f.colorizeKey("ts"))
+	b.WriteString(`":"`)
 	b.WriteString(r.Timestamp.Format(time.RFC3339Nano))
 	b.WriteByte('"')
 
-	// ,"msg":"message text"
-	b.WriteString(`,"msg":"`)
-	b.WriteString(escapeString(r.Message))
+	// ,"msg":"..."
+	b.WriteString(`,"`)
+	b.WriteString(f.colorizeKey("msg"))
+	b.WriteString(`":"`)
+	b.WriteString(f.colorizeValue(escapeString(r.Message)))
 	b.WriteByte('"')
 
-	// ,"caller":"file.go:42"
+	// ,"caller":"..."
 	if r.Caller != "" {
-		b.WriteString(`,"caller":"`)
-		b.WriteString(escapeString(r.Caller))
+		b.WriteString(`,"`)
+		b.WriteString(f.colorizeKey("caller"))
+		b.WriteString(`":"`)
+		b.WriteString(f.colorizeValue(escapeString(r.Caller)))
 		b.WriteByte('"')
 	}
 
 	// поля из Fields
 	for k, v := range r.Fields {
-		b.WriteByte(',')
-		b.WriteByte('"')
-		b.WriteString(escapeString(k))
+		b.WriteString(`,"`)
+		b.WriteString(f.colorizeKey(escapeString(k)))
 		b.WriteString(`":`)
-		writeValue(&b, v)
+		f.writeValue(&b, v)
 	}
 
 	b.WriteByte('}')
@@ -57,21 +82,37 @@ func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 }
 
 // writeValue пишет значение в json-буфер в зависимости от типа.
-func writeValue(b *bytes.Buffer, v interface{}) {
+func (f *JsonFormatter) writeValue(b *bytes.Buffer, v interface{}) {
 	switch val := v.(type) {
 	case string:
 		b.WriteByte('"')
-		b.WriteString(escapeString(val))
+		b.WriteString(f.colorizeValue(escapeString(val)))
 		b.WriteByte('"')
 	case int, int32, int64:
-		b.WriteString(toIntString(val))
+		b.WriteString(f.colorizeValue(toIntString(val)))
 	case float64, float32:
-		b.WriteString(toFloatString(val))
+		b.WriteString(f.colorizeValue(toFloatString(val)))
 	case bool:
-		b.WriteString(strconv.FormatBool(val))
+		b.WriteString(f.colorizeValue(strconv.FormatBool(val)))
 	default:
 		b.WriteString(`"unsupported_type"`)
 	}
+}
+
+// colorizeKey возвращает ключ с ANSI-цветом, если включено.
+func (f *JsonFormatter) colorizeKey(key string) string {
+	if f.style.ColorKeys {
+		return f.style.KeyColor + key + f.style.Reset
+	}
+	return key
+}
+
+// colorizeValue возвращает значение с ANSI-цветом, если включено.
+func (f *JsonFormatter) colorizeValue(val string) string {
+	if f.style.ColorValues {
+		return f.style.ValueColor + val + f.style.Reset
+	}
+	return val
 }
 
 // escapeString экранирует кавычки и обратные слеши.

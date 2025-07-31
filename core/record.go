@@ -13,6 +13,29 @@ const (
 	Exception
 )
 
+func (lvl LogLevel) Color() string {
+	switch lvl {
+	case Trace:
+		return "\033[90m" // серый
+	case Debug:
+		return "\033[34m" // синий
+	case Info:
+		return "\033[32m" // зелёный
+	case Warning:
+		return "\033[33m" // жёлтый
+	case Error:
+		return "\033[31m" // красный
+	case Exception:
+		return "\033[1;31m" // ярко-красный
+	default:
+		return "\033[0m"
+	}
+}
+
+func (lvl LogLevel) Reset() string {
+	return "\033[0m"
+}
+
 func (l LogLevel) String() string {
 	switch l {
 	case Trace:
