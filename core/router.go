@@ -16,12 +16,6 @@ type RouteProcessor struct {
 	mu     sync.RWMutex
 }
 
-// FlushableWriter — интерфейс для writer'ов с поддержкой Flush().
-type FlushableWriter interface {
-	Write([]byte) error
-	Flush() error
-}
-
 // NewRouteProcessor создаёт маршрутизатор логов с указанным форматтером и writer'ом.
 func NewRouteProcessor(formatter FormatProcessor, writer WriteProcessor, level LogLevel) *RouteProcessor {
 	return &RouteProcessor{

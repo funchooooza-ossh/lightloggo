@@ -5,7 +5,8 @@ type WriteProcessor interface {
 	Write(formatted []byte) error
 }
 
-// Flushable добавляет возможность сброса буфера.
-type Flushable interface {
+// FlushableWriter — интерфейс для writer'ов с поддержкой Flush().
+type FlushableWriter interface {
+	Write([]byte) error
 	Flush() error
 }
