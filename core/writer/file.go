@@ -2,8 +2,9 @@ package writer
 
 import (
 	"bufio"
-	"compress/gzip"
-	"io"
+	"fmt"
+	"funchooooza-ossh/loggo/core"
+	"funchooooza-ossh/loggo/core/compressor"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,23 +13,45 @@ import (
 	"time"
 )
 
+type Compress string
+
+const (
+	gz   Compress = "gz"
+	null Compress = ""
+)
+
 type FileWriter struct {
 	path       string
 	maxSizeMB  int64
 	maxBackups int
-	compress   bool
+	compress   Compress
 
-	mu     sync.Mutex
-	file   *os.File
-	writer *bufio.Writer
-	size   int64
+	compressor core.Compressor
+	mu         sync.Mutex
+	file       *os.File
+	writer     *bufio.Writer
+	size       int64
 }
 
 // NewFileWriter создаёт новый лог-файл с опциями ротации и сжатия.
-func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress bool) (*FileWriter, error) {
+func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress *Compress) (*FileWriter, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
+	}
+
+	var comp core.Compressor
+	compressVal := ""
+
+	if compress != nil {
+		switch *compress {
+		case gz:
+			compressVal = "gz"
+			comp = &compressor.GzipCompressor{}
+		// можно добавить другие варианты позже
+		default:
+			return nil, fmt.Errorf("unsupported compression: %s", *compress)
+		}
 	}
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -36,13 +59,18 @@ func NewFileWriter(path string, maxSizeMB int64, maxBackups int, compress bool) 
 		return nil, err
 	}
 
-	info, _ := f.Stat()
+	info, statErr := f.Stat()
+	if statErr != nil {
+		f.Close()
+		return nil, statErr
+	}
 
 	return &FileWriter{
 		path:       path,
 		maxSizeMB:  maxSizeMB,
 		maxBackups: maxBackups,
-		compress:   compress,
+		compress:   Compress(compressVal),
+		compressor: comp,
 		file:       f,
 		writer:     bufio.NewWriter(f),
 		size:       info.Size(),
@@ -93,8 +121,12 @@ func (fw *FileWriter) rotate() error {
 		return err
 	}
 
-	if fw.compress {
-		go compressFile(rotatedName)
+	if fw.compressor != nil {
+		go func(src string) {
+			dst := src + fw.compressor.Extension()
+			_ = fw.compressor.Compress(src, dst)
+			_ = os.Remove(src)
+		}(rotatedName)
 	}
 
 	f, err := os.OpenFile(fw.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -116,17 +148,22 @@ func (fw *FileWriter) cleanupBackups() {
 	}
 
 	dir := filepath.Dir(fw.path)
-	prefix := filepath.Base(fw.path)
+	prefix := filepath.Base(fw.path) + "."
 
-	files, _ := os.ReadDir(dir)
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
 	var backups []string
 
 	for _, f := range files {
 		name := f.Name()
 
-		// Ищем только архивы, начинающиеся с app.log. и заканчивающиеся на .gz
-		if strings.HasPrefix(name, prefix+".") && strings.HasSuffix(name, ".gz") {
-			backups = append(backups, filepath.Join(dir, name))
+		// Ищем только те, что начинаются с basename+"."
+		if strings.HasPrefix(name, prefix) {
+			fullPath := filepath.Join(dir, name)
+			backups = append(backups, fullPath)
 		}
 	}
 
@@ -134,31 +171,11 @@ func (fw *FileWriter) cleanupBackups() {
 		return
 	}
 
-	// Сортируем по имени — время встроено в имя
+	// Сортируем по имени (в имени уже заложен timestamp)
 	sort.Strings(backups)
 
-	// Удаляем лишние архивы
+	// Удаляем самые старые
 	for _, f := range backups[:len(backups)-fw.maxBackups] {
 		_ = os.Remove(f)
 	}
-}
-
-func compressFile(path string) {
-	in, err := os.Open(path)
-	if err != nil {
-		return
-	}
-	defer in.Close()
-
-	out, err := os.Create(path + ".gz")
-	if err != nil {
-		return
-	}
-	defer out.Close()
-
-	gz := gzip.NewWriter(out)
-	io.Copy(gz, in)
-	gz.Close()
-
-	os.Remove(path)
 }
