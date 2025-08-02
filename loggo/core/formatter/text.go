@@ -44,12 +44,6 @@ func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 	}
 	b.WriteByte(' ')
 
-	// caller
-	if r.Caller != "" {
-		b.WriteString(r.Caller)
-		b.WriteByte(' ')
-	}
-
 	// → message
 	b.WriteString("→ ")
 	b.WriteString(r.Message)

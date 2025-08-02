@@ -60,15 +60,6 @@ func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
 	b.WriteString(f.colorizeValue(escapeString(r.Message)))
 	b.WriteByte('"')
 
-	// ,"caller":"..."
-	if r.Caller != "" {
-		b.WriteString(`,"`)
-		b.WriteString(f.colorizeKey("caller"))
-		b.WriteString(`":"`)
-		b.WriteString(f.colorizeValue(escapeString(r.Caller)))
-		b.WriteByte('"')
-	}
-
 	// поля из Fields
 	for k, v := range r.Fields {
 		b.WriteString(`,"`)

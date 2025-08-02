@@ -60,6 +60,4 @@ type LogRecord struct {
 	Timestamp time.Time
 	Message   string
 	Fields    map[string]interface{}
-
-	Caller string
 }
