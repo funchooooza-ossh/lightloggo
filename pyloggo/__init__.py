@@ -5,7 +5,7 @@ from .writer import StdoutWriter, FileWriter, Writer
 from .route import RouteProcessor
 from .enums import LogLevel
 
-logger: Logger = GlobalLogger()
+logger: GlobalLogger = GlobalLogger()
 
 
 __all__ = [
