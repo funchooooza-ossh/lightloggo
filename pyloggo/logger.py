@@ -49,7 +49,7 @@ class Logger:
         return fields_cp
 
     @staticmethod
-    def _add_scope(frame_depth: int = 4) -> str:
+    def _add_scope(frame_depth: int = 5) -> str:
         try:
             frame = sys._getframe(frame_depth)
             filename = os.path.basename(frame.f_code.co_filename)
@@ -60,7 +60,7 @@ class Logger:
             return "<scope unavailable>"
 
     @staticmethod
-    def _add_traceback(max_depth: int = 10, skip: int = 4) -> str:
+    def _add_traceback(max_depth: int = 10, skip: int = 5) -> str:
         lines = []
         frame = sys._getframe(skip)
 
