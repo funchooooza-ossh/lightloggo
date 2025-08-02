@@ -1,7 +1,17 @@
-from .ffi import lib
+from .c import CFormatStyle, CStyle
 
 
-class FormatStyle:
+class BaseStyle:
+    _c_style: CStyle
+
+    @property
+    def id(self) -> int:
+        if not hasattr(self, "_c_style"):
+            raise RuntimeError("C style not initialized")
+        return self._c_style._id
+
+
+class FormatStyle(BaseStyle):
     def __init__(
         self,
         color_keys=True,
@@ -11,11 +21,11 @@ class FormatStyle:
         value_color="\033[33m",
         reset="\033[0m",
     ):
-        self._id = lib.NewFormatStyle(
-            int(color_keys),
-            int(color_values),
-            int(color_level),
-            key_color.encode(),
-            value_color.encode(),
-            reset.encode(),
+        self._c_style = CFormatStyle(
+            color_keys=color_keys,
+            color_values=color_values,
+            color_level=color_level,
+            key_color=key_color,
+            value_color=value_color,
+            reset=reset,
         )

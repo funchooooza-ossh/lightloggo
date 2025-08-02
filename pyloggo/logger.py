@@ -1,23 +1,25 @@
-from .ffi import lib
+from .ffi.ffi import lib
 import json
-import ctypes
 from .route import RouteProcessor
-
+from .c import CLogger
 
 import threading
 
 
 class Logger:
     def __init__(self, routes: list["RouteProcessor"]):
-        arr_type = ctypes.c_ulong * len(routes)
-        route_ids = arr_type(*(r._id for r in routes))
-        self._id = lib.NewLoggerWithRoutes(route_ids, len(routes))
+        route_ids = [r.id for r in routes]
+        self._c_logger = CLogger(route_ids)
+
+    @property
+    def id(self) -> int:
+        return self._c_logger._id
 
     def _log(self, method: str, msg: str, **kwargs):
         msg_b = msg.encode()
         fields_b = json.dumps(kwargs or {}).encode()
         getattr(lib, f"Logger_{method.capitalize()}WithFields")(
-            self._id, msg_b, fields_b
+            self.id, msg_b, fields_b
         )
 
     def trace(self, msg: str, **kwargs):
@@ -39,16 +41,19 @@ class Logger:
         self._log("exception", msg, **kwargs)
 
     def close(self):
-        lib.Logger_Close(self._id)
+        self._c_logger.close()
 
     def __del__(self):
-        lib.FreeLogger(self._id)
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 def create_default_logger() -> Logger:
     logger_id = lib.NewDefaultLogger()
     logger = Logger.__new__(Logger)
-    logger._id = logger_id
+    logger._c_logger = CLogger.from_id(logger_id)
     return logger
 
 
@@ -92,11 +97,14 @@ class GlobalLogger:
     def configure(self, routes: list):
         with self._lock:
             self._logger.close()
-            self._logger = Logger(routes=routes)
+            self._logger = Logger(routes=list(routes))
 
     def close(self):
         with self._lock:
             self._logger.close()
 
     def __del__(self):
-        lib.FreeLogger(self._logger._id)
+        try:
+            self._logger.close()
+        except Exception:
+            pass
