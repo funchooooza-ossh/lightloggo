@@ -1,11 +1,11 @@
 from .logger import Logger, GlobalLogger
 from .style import FormatStyle
 from .formatter import TextFormatter, JsonFormatter
-from .writer import StdoutWriter, FileWriter
+from .writer import StdoutWriter, FileWriter, Writer
 from .route import RouteProcessor
 from .enums import LogLevel
 
-logger: Logger = GlobalLogger()
+logger: GlobalLogger = GlobalLogger()
 
 
 __all__ = [
@@ -18,4 +18,5 @@ __all__ = [
     "FileWriter",
     "RouteProcessor",
     "LogLevel",
+    "Writer",
 ]

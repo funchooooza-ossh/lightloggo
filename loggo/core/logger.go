@@ -2,9 +2,6 @@ package core
 
 import (
 	"context"
-	"path/filepath"
-	"runtime"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -46,18 +43,12 @@ func (l *Logger) Close() {
 
 // log формирует LogRecord и отправляет его в подходящие маршруты.
 func (l *Logger) log(level LogLevel, msg string, fields map[string]interface{}) {
-	_, file, line, ok := runtime.Caller(2)
-	var caller string
-	if ok {
-		caller = filepath.Base(file) + ":" + strconv.Itoa(line)
-	}
 
 	record := LogRecord{
 		Level:     level,
 		Timestamp: time.Now(),
 		Message:   msg,
 		Fields:    fields,
-		Caller:    caller,
 	}
 
 	for _, route := range l.routes {

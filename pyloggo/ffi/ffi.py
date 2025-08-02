@@ -11,9 +11,11 @@ uintptr_t = ctypes.c_ulong
 # Объявление сигнатур
 lib.NewLoggerWithSingleRoute.argtypes = [uintptr_t]
 lib.NewLoggerWithSingleRoute.restype = uintptr_t
+lib.NewLoggerWithRoutes.argtypes = [ctypes.POINTER(uintptr_t), ctypes.c_int]
+lib.NewLoggerWithRoutes.restype = uintptr_t
 
 for level in ["trace", "debug", "info", "warning", "error", "exception"]:
-    fn = getattr(lib, f"Logger_{level.capitalize()}WithFields")
+    fn = getattr(lib, f"Logger_{level.capitalize()}ToRoute")
     fn.argtypes = [ctypes.c_ulong, ctypes.c_char_p, ctypes.c_char_p]
     fn.restype = None
 

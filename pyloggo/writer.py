@@ -1,9 +1,16 @@
-from .ffi import lib
-import ctypes
 from typing import Union
+from .c import CFileWriter, CStdoutWriter, CWriter
 
 
-class FileWriter:
+class writer:
+    _c_writer: CWriter
+
+    @property
+    def id(self) -> int:
+        return self._c_writer._id
+
+
+class FileWriter(writer):
     def __init__(
         self,
         path: str,
@@ -12,25 +19,18 @@ class FileWriter:
         interval: str = "day",  # "day", "week", "month"
         compress: str = "gz",  # "gz" or ""
     ):
-        self._path = path.encode()
-        self._interval = interval.encode()
-        self._compress = compress.encode()
-
-        self._id = lib.NewFileWriter(
-            ctypes.c_char_p(self._path),
-            ctypes.c_long(max_size_mb),
-            ctypes.c_int(max_backups),
-            ctypes.c_char_p(self._interval),
-            ctypes.c_char_p(self._compress),
+        self._c_writer = CFileWriter(
+            path=path,
+            max_backups=max_backups,
+            max_size_mb=max_size_mb,
+            interval=interval,
+            compress=compress,
         )
 
-        if not self._id:
-            raise RuntimeError("Failed to create FileWriter")
 
-
-class StdoutWriter:
+class StdoutWriter(writer):
     def __init__(self):
-        self._id = lib.NewStdoutWriter()
+        self._c_writer = CStdoutWriter()
 
 
 Writer = Union[FileWriter, StdoutWriter]

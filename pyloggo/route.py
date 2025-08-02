@@ -1,11 +1,32 @@
-from .ffi import lib
 from .formatter import Formatter
 from .writer import Writer
 from .enums import LogLevel
+from .c import CRouter, CRouteProcessor
+from .formatter import TextFormatter
+from .writer import StdoutWriter
 
 
-class RouteProcessor:
+class router:
+    _c_router: CRouter
+
+    @property
+    def id(self) -> int:
+        return self._c_router._id
+
+
+class RouteProcessor(router):
     def __init__(
-        self, formatter: Formatter, writer: Writer, level: LogLevel = 20
+        self,
+        formatter: Formatter = TextFormatter(),
+        writer: Writer = StdoutWriter(),
+        level: LogLevel = 20,
+        tb: bool = False,
+        tb_max_depth: int = 10,
+        tb_level: int = 50,
+        scope: bool = True,
     ):  # default INFO
-        self._id = lib.NewRouteProcessor(formatter._id, writer._id, level)
+        self._c_router = CRouteProcessor(formatter.id, writer.id, level)
+        self.tb = tb
+        self.tb_level = tb_level
+        self.tb_max_depth = tb_max_depth
+        self.scope = scope
