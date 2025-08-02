@@ -1,5 +1,5 @@
 from .ffi.ffi import lib
-import json
+from .json import _serialize_fields
 from .route import RouteProcessor
 from .c import CLogger
 import sys
@@ -22,12 +22,12 @@ class Logger:
         return self._c_logger._id
 
     def _log(self, method: str, msg: str, **kwargs):
-        level = LogLevel._from_string(method.capitalize())
+        level = getattr(LogLevel, method.capitalize())
 
         msg_b = msg.encode()
         for route in self._routes:
             route_fields = self._resolve_fields(route, level, kwargs)
-            fields_b = json.dumps(route_fields or {}).encode()
+            fields_b = _serialize_fields(route_fields)
             getattr(lib, f"Logger_{method.capitalize()}ToRoute")(
                 route.id, msg_b, fields_b
             )
