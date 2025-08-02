@@ -13,7 +13,7 @@ lib.NewLoggerWithSingleRoute.argtypes = [uintptr_t]
 lib.NewLoggerWithSingleRoute.restype = uintptr_t
 
 for level in ["trace", "debug", "info", "warning", "error", "exception"]:
-    fn = getattr(lib, f"Logger_{level.capitalize()}WithFields")
+    fn = getattr(lib, f"Logger_{level.capitalize()}ToRoute")
     fn.argtypes = [ctypes.c_ulong, ctypes.c_char_p, ctypes.c_char_p]
     fn.restype = None
 
