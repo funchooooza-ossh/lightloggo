@@ -6,34 +6,50 @@ import sys
 import linecache
 import os
 from .enums import LogLevel
+from typing import Any
 
 import threading
 
 
 class Logger:
-    def __init__(self, routes: list["RouteProcessor"], tb_level: int = 50):
+    def __init__(self, routes: list[RouteProcessor]):
         route_ids = [r.id for r in routes]
         self._c_logger = CLogger(route_ids)
-        self._tb_level = tb_level
+        self._routes = routes
 
     @property
     def id(self) -> int:
         return self._c_logger._id
 
     def _log(self, method: str, msg: str, **kwargs):
+        level = LogLevel._from_string(method.capitalize())
+
         msg_b = msg.encode()
+        for route in self._routes:
+            route_fields = self._resolve_fields(route, level, kwargs)
+            fields_b = json.dumps(route_fields or {}).encode()
+            getattr(lib, f"Logger_{method.capitalize()}ToRoute")(
+                route.id, msg_b, fields_b
+            )
 
-        if LogLevel._from_string(method.capitalize()) >= self._tb_level:
-            kwargs["tb"] = self._add_traceback()
-        else:
-            kwargs["scope"] = self._add_scope()
+    def _resolve_fields(
+        self,
+        route: RouteProcessor,
+        level: LogLevel,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        fields_cp = dict(fields)
+        tb = False
+        if route.tb and route.tb_level <= level:
+            fields_cp["tb"] = self._add_traceback(max_depth=route.tb_max_depth)
+            tb = True
+        if not tb and route.scope:
+            fields_cp["scope"] = self._add_scope()
 
-        fields_b = json.dumps(kwargs or {}).encode()
-        getattr(lib, f"Logger_{method.capitalize()}WithFields")(
-            self.id, msg_b, fields_b
-        )
+        return fields_cp
 
-    def _add_scope(self, frame_depth: int = 4) -> str:
+    @staticmethod
+    def _add_scope(frame_depth: int = 4) -> str:
         try:
             frame = sys._getframe(frame_depth)
             filename = os.path.basename(frame.f_code.co_filename)
@@ -43,7 +59,8 @@ class Logger:
         except Exception:
             return "<scope unavailable>"
 
-    def _add_traceback(self, max_depth: int = 10, skip: int = 4) -> str:
+    @staticmethod
+    def _add_traceback(max_depth: int = 10, skip: int = 4) -> str:
         lines = []
         frame = sys._getframe(skip)
 
@@ -95,10 +112,8 @@ class Logger:
 
 
 def create_default_logger() -> Logger:
-    logger_id = lib.NewDefaultLogger()
-    logger = Logger.__new__(Logger)
-    logger._c_logger = CLogger.from_id(logger_id)
-    return logger
+    router = RouteProcessor()
+    return Logger([router])
 
 
 class GlobalLogger:
@@ -138,10 +153,10 @@ class GlobalLogger:
             self._logger.close()
             self._logger = self._create_default_logger()
 
-    def configure(self, routes: list, tb_level: LogLevel = 50):
+    def configure(self, routes: list):
         with self._lock:
             self._logger.close()
-            self._logger = Logger(routes=list(routes), tb_level=tb_level)
+            self._logger = Logger(routes=list(routes))
 
     def close(self):
         with self._lock:
