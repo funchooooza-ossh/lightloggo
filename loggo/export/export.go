@@ -11,6 +11,7 @@ import (
 	"funchooooza-ossh/loggo/core/formatter"
 	"funchooooza-ossh/loggo/core/writer"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -150,39 +151,9 @@ func NewLoggerWithSingleRoute(routeID C.uintptr_t) C.uintptr_t {
 	return C.uintptr_t(id)
 }
 
-//export Logger_TraceWithFields
-func Logger_TraceWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "trace")
-}
-
-//export Logger_DebugWithFields
-func Logger_DebugWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "debug")
-}
-
-//export Logger_InfoWithFields
-func Logger_InfoWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "info")
-}
-
-//export Logger_WarningWithFields
-func Logger_WarningWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "warning")
-}
-
-//export Logger_ErrorWithFields
-func Logger_ErrorWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "error")
-}
-
-//export Logger_ExceptionWithFields
-func Logger_ExceptionWithFields(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char) {
-	logWithLevel(loggerID, msg, fieldsJSON, "exception")
-}
-
-func logWithLevel(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char, level string) {
+func LogToRoute(routeId C.uintptr_t, level core.LogLevel, msg *C.char, fieldsJSON *C.char) {
 	storeMu.Lock()
-	logger := loggerStore[uintptr(loggerID)]
+	route := routeStore[uintptr(routeId)]
 	storeMu.Unlock()
 
 	goMsg := C.GoString(msg)
@@ -190,21 +161,50 @@ func logWithLevel(loggerID C.uintptr_t, msg *C.char, fieldsJSON *C.char, level s
 
 	var fields map[string]interface{}
 	_ = json.Unmarshal([]byte(jsonStr), &fields)
-
-	switch level {
-	case "trace":
-		logger.Trace(goMsg, fields)
-	case "debug":
-		logger.Debug(goMsg, fields)
-	case "info":
-		logger.Info(goMsg, fields)
-	case "warning":
-		logger.Warn(goMsg, fields)
-	case "error":
-		logger.Error(goMsg, fields)
-	case "exception":
-		logger.Exception(goMsg, fields)
+	if route == nil {
+		return
 	}
+
+	record := core.LogRecord{
+		Level:     level,
+		Timestamp: time.Now(),
+		Message:   goMsg,
+		Fields:    fields,
+	}
+
+	if route.ShouldLog(record) {
+		route.Enqueue(record)
+	}
+}
+
+//export Logger_TraceToRoute
+func Logger_TraceToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Trace, msg, fields)
+}
+
+//export Logger_DebugToRoute
+func Logger_DebugToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Debug, msg, fields)
+}
+
+//export Logger_InfoToRoute
+func Logger_InfoToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Info, msg, fields)
+}
+
+//export Logger_WarningToRoute
+func Logger_WarningToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Warning, msg, fields)
+}
+
+//export Logger_ErrorToRoute
+func Logger_ErrorToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Error, msg, fields)
+}
+
+//export Logger_ExceptionToRoute
+func Logger_ExceptionToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
+	LogToRoute(routeId, core.Exception, msg, fields)
 }
 
 //export FreeLogger
@@ -212,22 +212,6 @@ func FreeLogger(loggerID C.uintptr_t) {
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	delete(loggerStore, uintptr(loggerID))
-}
-
-//export NewDefaultLogger
-func NewDefaultLogger() C.uintptr_t {
-	formatter := formatter.NewTextFormatter(nil)
-	writer := &writer.StdoutWriter{}
-	route := core.NewRouteProcessor(formatter, writer, core.Info)
-
-	routeID := makeID()
-	routeStore[routeID] = route
-
-	logger := core.NewLogger(route)
-	loggerID := makeID()
-	loggerStore[loggerID] = logger
-
-	return C.uintptr_t(loggerID)
 }
 
 //export Logger_Close
