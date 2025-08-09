@@ -1,17 +1,15 @@
-from .ffi.ffi import lib
-from .json import _serialize_fields
-from .route import RouteProcessor
-from .c import CLogger
+from ..ffi.ffi import log_call, _as_bytes
+from ..json import _serialize_fields
+from ..route import RouteProcessor
+from ..c import CLogger
 import sys
 import linecache
 import os
-from .enums import LogLevel
-from typing import Any
-
-import threading
+from ..enums import LogLevel
+from typing import Any 
 
 
-class Logger:
+class _Logger:
     def __init__(self, routes: list[RouteProcessor]) -> None:
         route_ids = [r.id for r in routes]
         self._c_logger = CLogger(route_ids)
@@ -22,15 +20,11 @@ class Logger:
         return self._c_logger._id
 
     def _log(self, method: str, msg: str, **kwargs) -> None:
-        level: int = getattr(LogLevel, method.capitalize())
-
-        msg_b = msg.encode()
+        level = getattr(LogLevel, method.capitalize()) 
+        msg_b = _as_bytes(msg)
         for route in self._routes:
-            route_fields = self._resolve_fields(route, level, kwargs)
-            fields_b = _serialize_fields(route_fields)
-            getattr(lib, f"Logger_{method.capitalize()}ToRoute")(
-                route.id, msg_b, fields_b
-            )
+            fields_b = _serialize_fields(self._resolve_fields(route, level, kwargs))
+            log_call(method, route.id, msg_b, fields_b)
 
     def _resolve_fields(
         self,
@@ -111,59 +105,8 @@ class Logger:
             pass
 
 
-def create_default_logger() -> Logger:
+def create_default_logger() -> _Logger:
     router = RouteProcessor()
-    return Logger([router])
+    return _Logger([router])
 
 
-class GlobalLogger:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._logger = self._create_default_logger()
-
-    def _create_default_logger(self) -> Logger:
-        return create_default_logger()
-
-    def info(self, msg, **kwargs):
-        self._logger.info(msg, **kwargs)
-
-    def debug(self, msg, **kwargs):
-        self._logger.debug(msg, **kwargs)
-
-    def warning(self, msg, **kwargs):
-        self._logger.warning(msg, **kwargs)
-
-    def error(self, msg, **kwargs):
-        self._logger.error(msg, **kwargs)
-
-    def exception(self, msg, **kwargs):
-        self._logger.exception(msg, **kwargs)
-
-    def trace(self, msg, **kwargs):
-        self._logger.trace(msg, **kwargs)
-
-    def add(self, route: RouteProcessor):
-        with self._lock:
-            # пересоздаём logger с новым роутом
-            self._logger.close()
-            self._logger = Logger(routes=[route])
-
-    def remove(self):
-        with self._lock:
-            self._logger.close()
-            self._logger = self._create_default_logger()
-
-    def configure(self, routes: list):
-        with self._lock:
-            self._logger.close()
-            self._logger = Logger(routes=list(routes))
-
-    def close(self):
-        with self._lock:
-            self._logger.close()
-
-    def __del__(self):
-        try:
-            self._logger.close()
-        except Exception:
-            pass
