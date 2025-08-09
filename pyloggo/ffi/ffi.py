@@ -1,47 +1,62 @@
-import ctypes
+import ctypes as C
 import os
 
-# Загрузка loggo.so
 lib_path = os.path.join(os.path.dirname(__file__), "loggo.so")
-lib = ctypes.CDLL(lib_path)
+lib = C.CDLL(lib_path)
 
-# Тип указателя из Go
-uintptr_t = ctypes.c_ulong
+# uintptr_t на стороне C/Go → используем c_size_t
+ID_T = C.c_size_t
 
-# Объявление сигнатур
-lib.NewLoggerWithSingleRoute.argtypes = [uintptr_t]
-lib.NewLoggerWithSingleRoute.restype = uintptr_t
-lib.NewLoggerWithRoutes.argtypes = [ctypes.POINTER(uintptr_t), ctypes.c_int]
-lib.NewLoggerWithRoutes.restype = uintptr_t
+# ---- bind конструкторов/утилит ----
+lib.NewLoggerWithSingleRoute.argtypes = [ID_T]
+lib.NewLoggerWithSingleRoute.restype  = ID_T
 
-for level in ["trace", "debug", "info", "warning", "error", "exception"]:
-    fn = getattr(lib, f"Logger_{level.capitalize()}ToRoute")
-    fn.argtypes = [ctypes.c_ulong, ctypes.c_char_p, ctypes.c_char_p]
-    fn.restype = None
+lib.NewLoggerWithRoutes.argtypes = [C.POINTER(ID_T), C.c_int]
+lib.NewLoggerWithRoutes.restype  = ID_T
 
+lib.FreeLogger.argtypes = [ID_T]
+lib.FreeLogger.restype  = None
 
-lib.FreeLogger.argtypes = [uintptr_t]
-lib.FreeLogger.restype = None
-lib.NewFormatStyle.argtypes = [
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_char_p,
-    ctypes.c_char_p,
-    ctypes.c_char_p,
-]
-lib.NewFormatStyle.restype = ctypes.c_ulong
-lib.NewTextFormatter.argtypes = [ctypes.c_ulong, ctypes.c_int]
-lib.NewTextFormatter.restype = ctypes.c_ulong
+lib.NewFormatStyle.argtypes = [C.c_int, C.c_int, C.c_int, C.c_char_p, C.c_char_p, C.c_char_p]
+lib.NewFormatStyle.restype  = ID_T
+
+lib.NewTextFormatter.argtypes = [ID_T, C.c_int]
+lib.NewTextFormatter.restype  = ID_T
+
+lib.NewJsonFormatter.argtypes = [ID_T, C.c_int]
+lib.NewJsonFormatter.restype  = ID_T
+
 lib.NewStdoutWriter.argtypes = []
-lib.NewStdoutWriter.restype = ctypes.c_ulong
-lib.NewJsonFormatter.argtypes = [ctypes.c_ulong, ctypes.c_int]
-lib.NewJsonFormatter.restype = ctypes.c_ulong
+lib.NewStdoutWriter.restype  = ID_T
+
 lib.NewFileWriter.argtypes = [
-    ctypes.c_char_p,  # path
-    ctypes.c_long,  # maxSizeMB
-    ctypes.c_int,  # maxBackups
-    ctypes.c_char_p,  # interval
-    ctypes.c_char_p,  # compress
+    C.c_char_p,  # path
+    C.c_long,    # maxSizeMB
+    C.c_int,     # maxBackups
+    C.c_char_p,  # interval
+    C.c_char_p, 
 ]
-lib.NewFileWriter.restype = ctypes.c_ulong
+lib.NewFileWriter.restype  = ID_T
+
+def _bind5(name: str):
+    fn = getattr(lib, name)
+    fn.argtypes = [ID_T, C.c_char_p, C.c_size_t, C.c_char_p, C.c_size_t]
+    fn.restype  = None
+    return fn
+
+LOG_FUNS = {
+    "trace":     _bind5("Logger_TraceToRoute"),
+    "debug":     _bind5("Logger_DebugToRoute"),
+    "info":      _bind5("Logger_InfoToRoute"),
+    "warning":   _bind5("Logger_WarningToRoute"),
+    "error":     _bind5("Logger_ErrorToRoute"),
+    "exception": _bind5("Logger_ExceptionToRoute"),
+}
+
+# ---- утилиты ----
+def _as_bytes(x: str | bytes | bytearray | memoryview) -> bytes:
+    return x if isinstance(x, (bytes, bytearray)) else memoryview(x.encode("utf-8")).tobytes()
+
+def log_call(method: str, route_id: int, msg_b: bytes, fields_b: bytes) -> None:
+    fn = LOG_FUNS[method]
+    fn(ID_T(route_id), C.c_char_p(msg_b), len(msg_b), C.c_char_p(fields_b), len(fields_b))
