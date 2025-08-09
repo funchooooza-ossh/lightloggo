@@ -64,6 +64,6 @@ type LogRecord struct {
 
 type LogRecordRaw struct {
 	Level   LogLevel
-	Message string
+	Message []byte
 	Fields  []byte
 }

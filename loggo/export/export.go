@@ -163,9 +163,9 @@ func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
 		return
 	}
 
-	var goMsg string
+	var goMsg []byte
 	if msg != nil && msgLen > 0 {
-		goMsg = C.GoStringN(msg, C.int(msgLen))
+		goMsg = C.GoBytes(unsafe.Pointer(msg), C.int(msgLen))
 	}
 	var fieldsRaw []byte
 	if fieldsJSON != nil && fieldsLen > 0 {
@@ -175,7 +175,7 @@ func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
 	enqueue(route, level, goMsg, fieldsRaw)
 }
 
-func enqueue(route *core.RouteProcessor, level core.LogLevel, msg string, jsonRaw []byte) {
+func enqueue(route *core.RouteProcessor, level core.LogLevel, msg []byte, jsonRaw []byte) {
 	record := core.LogRecordRaw{
 		Level:   level,
 		Message: msg,

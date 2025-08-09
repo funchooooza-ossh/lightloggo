@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 )
@@ -71,14 +70,38 @@ func (r *RouteProcessor) Start(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func rawToRecord(rec LogRecordRaw) LogRecord {
-	var fields map[string]interface{}
+	fields := make(map[string]interface{})
+
 	if len(rec.Fields) > 0 {
-		_ = json.Unmarshal(rec.Fields, &fields)
+		b := rec.Fields
+		start := 0
+		var key string
+		isKey := true
+
+		for i := 0; i < len(b); i++ {
+			if b[i] == 0 {
+				part := string(b[start:i])
+				if isKey {
+					key = part
+					isKey = false
+				} else {
+					fields[key] = part
+					isKey = true
+				}
+				start = i + 1
+			}
+		}
 	}
+
+	var msg string
+	if len(rec.Message) > 0 {
+		msg = string(rec.Message)
+	}
+
 	return LogRecord{
 		Level:     rec.Level,
 		Timestamp: time.Now(),
-		Message:   rec.Message,
+		Message:   msg,
 		Fields:    fields,
 	}
 }
