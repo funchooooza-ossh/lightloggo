@@ -2,6 +2,7 @@ package main
 
 /*
 #include <stdint.h>
+#include <stddef.h>
 */
 import "C"
 
@@ -157,58 +158,99 @@ func LogToRoute(routeId C.uintptr_t, level core.LogLevel, msg *C.char, fieldsJSO
 	storeMu.Lock()
 	route := routeStore[uintptr(routeId)]
 	storeMu.Unlock()
-
+	if route == nil {
+		return
+	}
 	if !route.ShouldLog(level) {
 		return
 	}
 
-	goMsg := C.GoString(msg)
-	jsonStr := C.GoString(fieldsJSON)
+	var goMsg string
+	if msg != nil {
+		goMsg = C.GoString(msg)
+	}
+	var jsonStr string
+	if fieldsJSON != nil {
+		jsonStr = C.GoString(fieldsJSON)
+	}
 
-	var fields map[string]interface{}
-	_ = json.Unmarshal([]byte(jsonStr), &fields)
-	if route == nil {
+	enqueueAsync(route, level, goMsg, jsonStr)
+}
+
+func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
+	msg *C.char, msgLen C.size_t,
+	fieldsJSON *C.char, fieldsLen C.size_t,
+) {
+	storeMu.Lock()
+	route := routeStore[uintptr(routeId)]
+	storeMu.Unlock()
+	if route == nil || !route.ShouldLog(level) {
 		return
 	}
 
-	record := core.LogRecord{
-		Level:     level,
-		Timestamp: time.Now(),
-		Message:   goMsg,
-		Fields:    fields,
+	var goMsg, jsonStr string
+	if msg != nil && msgLen > 0 {
+		b := C.GoBytes(unsafe.Pointer(msg), C.int(msgLen))
+		goMsg = string(b)
 	}
-	route.Enqueue(record)
+	if fieldsJSON != nil && fieldsLen > 0 {
+		b := C.GoBytes(unsafe.Pointer(fieldsJSON), C.int(fieldsLen))
+		jsonStr = string(b)
+	}
 
+	enqueueAsync(route, level, goMsg, jsonStr)
+}
+
+func enqueueAsync(route *core.RouteProcessor, level core.LogLevel, msg, jsonStr string) {
+	go func() {
+		var fields map[string]interface{}
+		if jsonStr != "" {
+			_ = json.Unmarshal([]byte(jsonStr), &fields)
+		}
+		record := core.LogRecord{
+			Level:     level,
+			Timestamp: time.Now(),
+			Message:   msg,
+			Fields:    fields,
+		}
+		route.Enqueue(record)
+	}()
 }
 
 //export Logger_TraceToRoute
-func Logger_TraceToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Trace, msg, fields)
+func Logger_TraceToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Trace, msg, msgLen, fields, fieldsLen)
 }
 
 //export Logger_DebugToRoute
-func Logger_DebugToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Debug, msg, fields)
+func Logger_DebugToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Debug, msg, msgLen, fields, fieldsLen)
 }
 
 //export Logger_InfoToRoute
-func Logger_InfoToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Info, msg, fields)
+func Logger_InfoToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Info, msg, msgLen, fields, fieldsLen)
 }
 
 //export Logger_WarningToRoute
-func Logger_WarningToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Warning, msg, fields)
+func Logger_WarningToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Warning, msg, msgLen, fields, fieldsLen)
 }
 
 //export Logger_ErrorToRoute
-func Logger_ErrorToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Error, msg, fields)
+func Logger_ErrorToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Error, msg, msgLen, fields, fieldsLen)
 }
 
 //export Logger_ExceptionToRoute
-func Logger_ExceptionToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Exception, msg, fields)
+func Logger_ExceptionToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogToRouteN(routeId, core.Exception, msg, msgLen, fields, fieldsLen)
 }
 
 //export FreeLogger
