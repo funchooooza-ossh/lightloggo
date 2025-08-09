@@ -1,41 +1,58 @@
 from typing import Any
 
-
+_TABLE = str.maketrans({
+    "\\": "\\\\",
+    '"':  '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+})
 def _escape_string(s: str) -> str:
-    return (
-        '"'
-        + s.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        + '"'
-    )
+    return '"' + s.translate(_TABLE) + '"'
 
 
-def _serialize_value(val: Any) -> str:
+
+
+def _serialize_value(val: Any, out: list[str]) -> None:
     if isinstance(val, str):
-        return _escape_string(val)
+        out.append(_escape_string(val))
     elif isinstance(val, bool):
-        return "true" if val else "false"
+        out.append("true" if val else "false")
     elif val is None:
-        return "null"
+        out.append("null")
     elif isinstance(val, (int, float)):
-        return str(val)
+        out.append(str(val))
     elif isinstance(val, dict):
-        items = ", ".join(
-            f"{_escape_string(str(k))}: {_serialize_value(v)}" for k, v in val.items()
-        )
-        return f"{{{items}}}"
+        out.append("{")
+        first = True
+        for k, v in val.items():
+            if not first:
+                out.append(", ")
+            first = False
+            out.append(_escape_string(str(k))); out.append(": ")
+            _serialize_value(v, out)
+        out.append("}")
     elif isinstance(val, list):
-        items = ", ".join(_serialize_value(v) for v in val)
-        return f"[{items}]"
+        out.append("[")
+        first = True
+        for v in val:
+            if not first:
+                out.append(", ")
+            first = False
+            _serialize_value(v, out)
+        out.append("]")
     else:
-        return _escape_string(repr(val))  # fallback
-
+        out.append(_escape_string(repr(val)))
 
 def _serialize_fields(fields: dict[str, Any]) -> bytes:
-    items = ", ".join(
-        f"{_escape_string(str(k))}: {_serialize_value(v)}" for k, v in fields.items()
-    )
-    return f"{{{items}}}".encode("utf-8")
+    out: list[str] = ["{"]
+    first = True
+    for k, v in fields.items():
+        if not first:
+            out.append(", ")
+        first = False
+        out.append(_escape_string(str(k))); out.append(": ")
+        _serialize_value(v, out)
+    out.append("}")
+    return "".join(out).encode("utf-8", "replace")
+
