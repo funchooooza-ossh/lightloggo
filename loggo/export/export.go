@@ -7,12 +7,10 @@ package main
 import "C"
 
 import (
-	"encoding/json"
 	"funchooooza-ossh/loggo/core"
 	"funchooooza-ossh/loggo/core/formatter"
 	"funchooooza-ossh/loggo/core/writer"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -87,7 +85,7 @@ func NewFileWriter(path *C.char, maxSizeMB C.long, maxBackups C.int, interval *C
 
 	writer, err := writer.NewFileWriter(
 		goPath,
-		int64(maxSizeMB), // ← безопасно привести C.long → int64
+		int64(maxSizeMB),
 		int(maxBackups),
 		goInterval,
 		goCompress,
@@ -154,29 +152,6 @@ func NewLoggerWithSingleRoute(routeID C.uintptr_t) C.uintptr_t {
 	return C.uintptr_t(id)
 }
 
-func LogToRoute(routeId C.uintptr_t, level core.LogLevel, msg *C.char, fieldsJSON *C.char) {
-	storeMu.Lock()
-	route := routeStore[uintptr(routeId)]
-	storeMu.Unlock()
-	if route == nil {
-		return
-	}
-	if !route.ShouldLog(level) {
-		return
-	}
-
-	var goMsg string
-	if msg != nil {
-		goMsg = C.GoString(msg)
-	}
-	var jsonStr string
-	if fieldsJSON != nil {
-		jsonStr = C.GoString(fieldsJSON)
-	}
-
-	enqueueAsync(route, level, goMsg, jsonStr)
-}
-
 func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
 	msg *C.char, msgLen C.size_t,
 	fieldsJSON *C.char, fieldsLen C.size_t,
@@ -188,33 +163,25 @@ func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
 		return
 	}
 
-	var goMsg, jsonStr string
+	var goMsg string
 	if msg != nil && msgLen > 0 {
-		b := C.GoBytes(unsafe.Pointer(msg), C.int(msgLen))
-		goMsg = string(b)
+		goMsg = C.GoStringN(msg, C.int(msgLen))
 	}
+	var fieldsRaw []byte
 	if fieldsJSON != nil && fieldsLen > 0 {
-		b := C.GoBytes(unsafe.Pointer(fieldsJSON), C.int(fieldsLen))
-		jsonStr = string(b)
+		fieldsRaw = C.GoBytes(unsafe.Pointer(fieldsJSON), C.int(fieldsLen))
 	}
 
-	enqueueAsync(route, level, goMsg, jsonStr)
+	enqueue(route, level, goMsg, fieldsRaw)
 }
 
-func enqueueAsync(route *core.RouteProcessor, level core.LogLevel, msg, jsonStr string) {
-	go func() {
-		var fields map[string]interface{}
-		if jsonStr != "" {
-			_ = json.Unmarshal([]byte(jsonStr), &fields)
-		}
-		record := core.LogRecord{
-			Level:     level,
-			Timestamp: time.Now(),
-			Message:   msg,
-			Fields:    fields,
-		}
-		route.Enqueue(record)
-	}()
+func enqueue(route *core.RouteProcessor, level core.LogLevel, msg string, jsonRaw []byte) {
+	record := core.LogRecordRaw{
+		Level:   level,
+		Message: msg,
+		Fields:  jsonRaw,
+	}
+	route.Enqueue(record)
 }
 
 //export Logger_TraceToRoute

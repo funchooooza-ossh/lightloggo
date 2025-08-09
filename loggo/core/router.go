@@ -2,7 +2,9 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
+	"time"
 )
 
 // RouteProcessor связывает форматтер и writer, обрабатывает лог-события асинхронно.
@@ -11,7 +13,7 @@ type RouteProcessor struct {
 	Writer         WriteProcessor
 	LevelThreshold LogLevel
 
-	queue  chan LogRecord
+	queue  chan LogRecordRaw
 	closed bool
 	mu     sync.RWMutex
 }
@@ -22,7 +24,7 @@ func NewRouteProcessor(formatter FormatProcessor, writer WriteProcessor, level L
 		Formatter:      formatter,
 		Writer:         writer,
 		LevelThreshold: level,
-		queue:          make(chan LogRecord, 1024),
+		queue:          make(chan LogRecordRaw, 1024),
 	}
 }
 
@@ -32,19 +34,15 @@ func (r *RouteProcessor) ShouldLog(level LogLevel) bool {
 }
 
 // Enqueue отправляет событие в очередь логирования (если не закрыто).
-func (r *RouteProcessor) Enqueue(record LogRecord) {
+func (r *RouteProcessor) Enqueue(record LogRecordRaw) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.closed {
+	closed := r.closed
+	q := r.queue
+	r.mu.RUnlock()
+	if closed {
 		return
 	}
-
-	select {
-	case r.queue <- record:
-	default:
-		// очередь переполнена — можно добавить метрику/лог
-	}
+	q <- record
 }
 
 // Start запускает обработку очереди в отдельной горутине.
@@ -60,7 +58,8 @@ func (r *RouteProcessor) Start(ctx context.Context, wg *sync.WaitGroup) {
 				if !ok {
 					return
 				}
-				if data, err := r.Formatter.Format(rec); err == nil {
+				record := rawToRecord(rec)
+				if data, err := r.Formatter.Format(record); err == nil {
 					_ = r.Writer.Write(data)
 				}
 			case <-ctx.Done():
@@ -71,10 +70,24 @@ func (r *RouteProcessor) Start(ctx context.Context, wg *sync.WaitGroup) {
 	}()
 }
 
+func rawToRecord(rec LogRecordRaw) LogRecord {
+	var fields map[string]interface{}
+	if len(rec.Fields) > 0 {
+		_ = json.Unmarshal(rec.Fields, &fields)
+	}
+	return LogRecord{
+		Level:     rec.Level,
+		Timestamp: time.Now(),
+		Message:   rec.Message,
+		Fields:    fields,
+	}
+}
+
 // drainQueue считывает остатки очереди и вызывает Flush().
 func (r *RouteProcessor) drainQueue() {
 	for rec := range r.queue {
-		if data, err := r.Formatter.Format(rec); err == nil {
+		record := rawToRecord(rec)
+		if data, err := r.Formatter.Format(record); err == nil {
 			_ = r.Writer.Write(data)
 		}
 	}
