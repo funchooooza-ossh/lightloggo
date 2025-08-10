@@ -20,13 +20,5 @@ class RouteProcessor(router):
         formatter: Formatter = TextFormatter(),
         writer: Writer = StdoutWriter(),
         level: LogLevel = 20,
-        tb: bool = False,
-        tb_max_depth: int = 10,
-        tb_level: int = 50,
-        scope: bool = True,
     ):  # default INFO
         self._c_router = CRouteProcessor(formatter.id, writer.id, level)
-        self.tb = tb
-        self.tb_level = tb_level
-        self.tb_max_depth = tb_max_depth
-        self.scope = scope
