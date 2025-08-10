@@ -10,16 +10,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// JsonFormatter сериализует LogRecord в JSON-подобный формат без зависимостей.
 type JsonFormatter struct {
 	style    *core.FormatStyle
 	MaxDepth int
 }
 
-// NewJsonFormatter создаёт JsonFormatter с заданным стилем (или дефолтным).
 func NewJsonFormatter(style *core.FormatStyle, maxDepth *int) *JsonFormatter {
 	var depth int
 	if maxDepth == nil {
@@ -33,56 +32,167 @@ func NewJsonFormatter(style *core.FormatStyle, maxDepth *int) *JsonFormatter {
 			ColorKeys:   false,
 			ColorValues: false,
 			ColorLevel:  false,
-			KeyColor:    "\033[36m", // голубой
-			ValueColor:  "\033[37m", // белый/серый
+			KeyColor:    "\033[36m",
+			ValueColor:  "\033[37m",
 			Reset:       "\033[0m",
 		}
 	}
 	return &JsonFormatter{style: style, MaxDepth: depth}
 }
 
-// Format преобразует LogRecord в JSON-байты.
+type fieldInfo struct {
+	key       string
+	idx       int
+	omitEmpty bool
+}
+
+var structFieldCache sync.Map // map[reflect.Type][]fieldInfo
+
+// ---- bytes.Buffer ----------------------------------------------------------
+
+var bufPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
+
+func getBuf() *bytes.Buffer {
+	b := bufPool.Get().(*bytes.Buffer)
+	b.Reset()
+	return b
+}
+func putBuf(b *bytes.Buffer) {
+	b.Reset()
+	bufPool.Put(b)
+}
+
+// ---- []string  ---------------------------------------
+
+var strSlicePool = sync.Pool{
+	New: func() any { return make([]string, 0, 16) },
+}
+
+func getKeysSlice(n int) []string {
+	s := strSlicePool.Get().([]string)
+	if cap(s) < n {
+		return make([]string, 0, n)
+	}
+	return s[:0]
+}
+func putKeysSlice(s []string) {
+	for i := range s {
+		s[i] = ""
+	}
+	if cap(s) > 4096 {
+		return
+	}
+	strSlicePool.Put(s[:0])
+}
+
+// ---- visited map  ---------------------------------------
+
+var visitedPool = sync.Pool{
+	New: func() any { return make(map[uintptr]struct{}, 64) },
+}
+
+func getVisited() map[uintptr]struct{} {
+	return visitedPool.Get().(map[uintptr]struct{})
+}
+func putVisited(m map[uintptr]struct{}) {
+	for k := range m {
+		delete(m, k)
+	}
+	visitedPool.Put(m)
+}
+
+func getStructFields(t reflect.Type) []fieldInfo {
+	if v, ok := structFieldCache.Load(t); ok {
+		return v.([]fieldInfo)
+	}
+
+	n := t.NumField()
+	fields := make([]fieldInfo, 0, n)
+	for i := range n {
+		sf := t.Field(i)
+		if sf.PkgPath != "" {
+			continue // unexported
+		}
+
+		key := sf.Name
+		omitEmpty := false
+
+		if tag := sf.Tag.Get("json"); tag != "" {
+			parts := strings.Split(tag, ",")
+			if parts[0] == "-" {
+				continue
+			}
+			if parts[0] != "" {
+				key = parts[0]
+			}
+			for _, opt := range parts[1:] {
+				if opt == "omitempty" {
+					omitEmpty = true
+					break
+				}
+			}
+		}
+		if key == "" {
+			continue
+		}
+		fields = append(fields, fieldInfo{key: key, idx: i, omitEmpty: omitEmpty})
+	}
+
+	sort.Slice(fields, func(i, j int) bool { return fields[i].key < fields[j].key })
+	structFieldCache.Store(t, fields)
+	return fields
+}
+
 func (f *JsonFormatter) Format(r core.LogRecord) ([]byte, error) {
-	var b bytes.Buffer
+	b := getBuf()
+	defer putBuf(b)
+
+	visited := getVisited()
+	defer putVisited(visited)
+
 	b.WriteByte('{')
 
 	// "level"
-	writeJSONString(&b, "level")
+	writeJSONString(b, "level")
 	b.WriteByte(':')
-	writeJSONString(&b, r.Level.String())
+	writeJSONString(b, r.Level.String())
 
 	// ,"ts"
 	b.WriteByte(',')
-	writeJSONString(&b, "ts")
+	writeJSONString(b, "ts")
 	b.WriteByte(':')
-	writeJSONString(&b, r.Timestamp.Format(time.RFC3339Nano))
+	writeJSONString(b, r.Timestamp.Format(time.RFC3339Nano))
 
 	// ,"msg"
 	b.WriteByte(',')
-	writeJSONString(&b, "msg")
+	writeJSONString(b, "msg")
 	b.WriteByte(':')
-	writeJSONString(&b, r.Message)
+	writeJSONString(b, r.Message)
 
-	// поля
+	// fields
 	if len(r.Fields) > 0 {
-		// стабильный порядок ключей
-		keys := make([]string, 0, len(r.Fields))
+		keys := getKeysSlice(len(r.Fields))
 		for k := range r.Fields {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 
-		visited := make(map[uintptr]struct{})
 		for _, k := range keys {
 			b.WriteByte(',')
-			writeJSONString(&b, k)
+			writeJSONString(b, k)
 			b.WriteByte(':')
-			f.writeJSON(&b, r.Fields[k], 0, visited)
+			f.writeJSON(b, r.Fields[k], 0, visited)
 		}
+		putKeysSlice(keys)
 	}
 
 	b.WriteByte('}')
-	return b.Bytes(), nil
+
+	out := make([]byte, b.Len())
+	copy(out, b.Bytes())
+	return out, nil
 }
 
 func (f *JsonFormatter) writeJSON(b *bytes.Buffer, v any, depth int, visited map[uintptr]struct{}) {
@@ -141,7 +251,7 @@ func (f *JsonFormatter) writeMapStringAny(b *bytes.Buffer, m map[string]any, dep
 
 	b.WriteByte('{')
 	if len(m) > 0 {
-		keys := make([]string, 0, len(m))
+		keys := getKeysSlice(len(m))
 		for k := range m {
 			keys = append(keys, k)
 		}
@@ -154,6 +264,7 @@ func (f *JsonFormatter) writeMapStringAny(b *bytes.Buffer, m map[string]any, dep
 			b.WriteByte(':')
 			f.writeJSON(b, m[k], depth+1, visited)
 		}
+		putKeysSlice(keys)
 	}
 	b.WriteByte('}')
 }
@@ -224,44 +335,28 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 		}
 		f.writeByReflect(b, rv.Elem().Interface(), depth+1, visited)
 
-	//ANCHOR: Struct
+		//ANCHOR: Struct
 	case reflect.Struct:
 		b.WriteByte('{')
 		t := rv.Type()
 
-		type fieldInfo struct {
-			key string
-			idx int
-		}
-		fields := make([]fieldInfo, 0, rv.NumField())
+		fields := getStructFields(t)
 
-		for i := 0; i < rv.NumField(); i++ {
-			sf := t.Field(i)
-			if sf.PkgPath != "" {
+		first := true
+		for _, fi := range fields {
+			if fi.omitEmpty && rv.Field(fi.idx).IsZero() {
 				continue
-			} // unexported
-
-			key := sf.Name
-			if tag := sf.Tag.Get("json"); tag != "" {
-				parts := strings.Split(tag, ",")
-				if parts[0] == "-" {
-					continue
-				}
-				if parts[0] != "" {
-					key = parts[0]
-				}
-				for _, opt := range parts[1:] {
-					if opt == "omitempty" && rv.Field(i).IsZero() {
-						key = ""
-						break
-					}
-				}
-				if key == "" {
-					continue
-				}
 			}
-			fields = append(fields, fieldInfo{key: key, idx: i})
+			if !first {
+				b.WriteByte(',')
+			}
+			first = false
+
+			writeJSONString(b, fi.key)
+			b.WriteByte(':')
+			f.writeJSON(b, rv.Field(fi.idx).Interface(), depth+1, visited)
 		}
+		b.WriteByte('}')
 
 		sort.Slice(fields, func(i, j int) bool { return fields[i].key < fields[j].key })
 
@@ -282,7 +377,7 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 			return
 		}
 		keys := rv.MapKeys()
-		ss := make([]string, len(keys))
+		ss := getKeysSlice(len(keys))
 		for i, k := range keys {
 			ss[i] = k.String()
 		}
@@ -298,6 +393,7 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 			f.writeJSON(b, rv.MapIndex(reflect.ValueOf(k)).Interface(), depth+1, visited)
 		}
 		b.WriteByte('}')
+		putKeysSlice(ss)
 
 	//ANCHOR: SLICE, ARRAYS, BYTE
 	case reflect.Slice, reflect.Array:
@@ -312,7 +408,7 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 		}
 		n := rv.Len()
 		b.WriteByte('[')
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if i > 0 {
 				b.WriteByte(',')
 			}

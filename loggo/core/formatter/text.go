@@ -56,6 +56,9 @@ func (f *TextFormatter) writeStyledLevel(b *bytes.Buffer, lvl core.LogLevel) {
 func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 	var b bytes.Buffer
 
+	visited := getVisited()
+	defer putVisited(visited)
+
 	// [timestamp]
 	b.WriteString(r.Timestamp.Format("2006-01-02 15:04:05.000"))
 
@@ -76,7 +79,6 @@ func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		visited := make(map[uintptr]struct{})
 		for _, k := range keys {
 			b.WriteByte(' ')
 			b.WriteString(f.colorizeKey(k))
