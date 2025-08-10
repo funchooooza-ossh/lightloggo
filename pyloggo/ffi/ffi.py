@@ -45,18 +45,18 @@ def _bind5(name: str):
     return fn
 
 LOG_FUNS = {
-    "trace":     _bind5("Logger_TraceToRoute"),
-    "debug":     _bind5("Logger_DebugToRoute"),
-    "info":      _bind5("Logger_InfoToRoute"),
-    "warning":   _bind5("Logger_WarningToRoute"),
-    "error":     _bind5("Logger_ErrorToRoute"),
-    "exception": _bind5("Logger_ExceptionToRoute"),
+    "trace":     _bind5("Logger_Trace"),
+    "debug":     _bind5("Logger_Debug"),
+    "info":      _bind5("Logger_Info"),
+    "warning":   _bind5("Logger_Warning"),
+    "error":     _bind5("Logger_Error"),
+    "exception": _bind5("Logger_Exception"),
 }
 
 # ---- утилиты ----
 def _as_bytes(x: str | bytes | bytearray | memoryview) -> bytes:
     return x if isinstance(x, (bytes, bytearray)) else memoryview(x.encode("utf-8")).tobytes()
 
-def log_call(method: str, route_id: int, msg_b: bytes, fields_b: bytes) -> None:
+def log_call(method: str, logger_id: int, msg_b: bytes, fields_b: bytes) -> None:
     fn = LOG_FUNS[method]
-    fn(ID_T(route_id), C.c_char_p(msg_b), len(msg_b), C.c_char_p(fields_b), len(fields_b))
+    fn(ID_T(logger_id), C.c_char_p(msg_b), len(msg_b), C.c_char_p(fields_b), len(fields_b))

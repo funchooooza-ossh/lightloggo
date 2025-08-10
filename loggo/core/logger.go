@@ -10,6 +10,7 @@ type Logger struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	mu     sync.RWMutex
 
 	routes []*RouteProcessor
 }
@@ -38,4 +39,19 @@ func (l *Logger) Close() {
 	}
 	l.cancel()
 	l.wg.Wait()
+}
+
+func (l *Logger) RoutesSnapshot() []*RouteProcessor {
+	l.mu.RLock()
+	routes := append([]*RouteProcessor(nil), l.routes...)
+	l.mu.RUnlock()
+	return routes
+}
+func (l *Logger) AnyRouteShouldLog(level LogLevel) bool {
+	for _, r := range l.routes {
+		if r != nil && r.ShouldLog(level) {
+			return true
+		}
+	}
+	return false
 }

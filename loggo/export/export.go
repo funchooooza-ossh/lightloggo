@@ -152,16 +152,21 @@ func NewLoggerWithSingleRoute(routeID C.uintptr_t) C.uintptr_t {
 	return C.uintptr_t(id)
 }
 
-func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
+func LogN(loggerId C.uintptr_t, level core.LogLevel,
 	msg *C.char, msgLen C.size_t,
 	fieldsJSON *C.char, fieldsLen C.size_t,
 ) {
 	storeMu.Lock()
-	route := routeStore[uintptr(routeId)]
+	lg := loggerStore[uintptr(loggerId)]
 	storeMu.Unlock()
-	if route == nil || !route.ShouldLog(level) {
+	if lg == nil {
 		return
 	}
+
+	if !lg.AnyRouteShouldLog(level) {
+		return
+	}
+	rts := lg.RoutesSnapshot()
 
 	var goMsg []byte
 	if msg != nil && msgLen > 0 {
@@ -172,52 +177,54 @@ func LogToRouteN(routeId C.uintptr_t, level core.LogLevel,
 		fieldsRaw = C.GoBytes(unsafe.Pointer(fieldsJSON), C.int(fieldsLen))
 	}
 
-	enqueue(route, level, goMsg, fieldsRaw)
-}
-
-func enqueue(route *core.RouteProcessor, level core.LogLevel, msg []byte, jsonRaw []byte) {
 	record := core.LogRecordRaw{
 		Level:   level,
-		Message: msg,
-		Fields:  jsonRaw,
+		Message: goMsg,
+		Fields:  fieldsRaw,
 	}
-	route.Enqueue(record)
+
+	for _, r := range rts {
+		if r != nil && r.ShouldLog(level) {
+			r.Enqueue(record)
+		}
+	}
+
 }
 
-//export Logger_TraceToRoute
-func Logger_TraceToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Trace
+func Logger_Trace(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Trace, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Trace, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_DebugToRoute
-func Logger_DebugToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Debug
+func Logger_Debug(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Debug, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Debug, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_InfoToRoute
-func Logger_InfoToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Info
+func Logger_Info(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Info, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Info, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_WarningToRoute
-func Logger_WarningToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Warning
+func Logger_Warning(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Warning, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Warning, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_ErrorToRoute
-func Logger_ErrorToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Error
+func Logger_Error(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Error, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Error, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_ExceptionToRoute
-func Logger_ExceptionToRoute(routeId C.uintptr_t, msg *C.char, msgLen C.size_t,
+//export Logger_Exception
+func Logger_Exception(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
-	LogToRouteN(routeId, core.Exception, msg, msgLen, fields, fieldsLen)
+	LogN(loggerId, core.Exception, msg, msgLen, fields, fieldsLen)
 }
 
 //export FreeLogger

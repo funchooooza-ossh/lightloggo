@@ -39,10 +39,14 @@ class Logger:
             self._logger.close()
             self._logger = self._create_default_logger()
 
-    def configure(self, routes: list):
+    def configure(self, routes: list,         
+        tb: bool = False,
+        tb_max_depth: int = 10,
+        tb_level: int = 50,
+        scope: bool = True):
         with self._lock:
             self._logger.close()
-            self._logger = _Logger(routes=list(routes))
+            self._logger = _Logger(routes=list(routes), tb=tb, tb_max_depth=tb_max_depth, tb_level=tb_level, scope=scope)
 
     def close(self):
         with self._lock:

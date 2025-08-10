@@ -10,10 +10,18 @@ from typing import Any
 
 
 class _Logger:
-    def __init__(self, routes: list[RouteProcessor]) -> None:
+    def __init__(self, routes: list[RouteProcessor],
+        tb: bool = False,
+        tb_max_depth: int = 10,
+        tb_level: int = 50,
+        scope: bool = True) -> None:
         route_ids = [r.id for r in routes]
         self._c_logger = CLogger(route_ids)
         self._routes = routes
+        self._tb = tb
+        self._tb_max_depth=tb_max_depth
+        self._scope = scope
+        self._tb_level=tb_level
 
     @property
     def id(self) -> int:
@@ -22,22 +30,23 @@ class _Logger:
     def _log(self, method: str, msg: str, **kwargs) -> None:
         level = getattr(LogLevel, method.capitalize()) 
         msg_b = _as_bytes(msg)
-        for route in self._routes:
-            fields_b = _serialize_fields(self._resolve_fields(route, level, kwargs))
-            log_call(method, route.id, msg_b, fields_b)
+        if not kwargs:
+            fields_b = b"0"
+        else:
+            fields_b = _serialize_fields(self._resolve_fields(level, kwargs))
+        log_call(method, self.id, msg_b, fields_b)
 
     def _resolve_fields(
         self,
-        route: RouteProcessor,
         level: LogLevel,
         fields: dict[str, Any],
     ) -> dict[str, Any]:
         fields_cp = dict(fields)
         tb = False
-        if route.tb and route.tb_level <= level:
-            fields_cp["tb"] = self._add_traceback(max_depth=route.tb_max_depth)
+        if self._tb and self._tb_level <= level:
+            fields_cp["tb"] = self._add_traceback(max_depth=self._tb_max_depth)
             tb = True
-        if not tb and route.scope:
+        if not tb and self._scope:
             fields_cp["scope"] = self._add_scope()
 
         return fields_cp
