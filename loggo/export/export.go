@@ -156,6 +156,10 @@ func LogN(loggerId C.uintptr_t, level core.LogLevel,
 	msg *C.char, msgLen C.size_t,
 	fieldsJSON *C.char, fieldsLen C.size_t,
 ) {
+	if msgLen == 0 && fieldsLen == 0 {
+		return
+	}
+
 	storeMu.Lock()
 	lg := loggerStore[uintptr(loggerId)]
 	storeMu.Unlock()
