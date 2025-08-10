@@ -2,16 +2,15 @@ package main
 
 /*
 #include <stdint.h>
+#include <stddef.h>
 */
 import "C"
 
 import (
-	"encoding/json"
 	"funchooooza-ossh/loggo/core"
 	"funchooooza-ossh/loggo/core/formatter"
 	"funchooooza-ossh/loggo/core/writer"
 	"sync"
-	"time"
 	"unsafe"
 )
 
@@ -86,7 +85,7 @@ func NewFileWriter(path *C.char, maxSizeMB C.long, maxBackups C.int, interval *C
 
 	writer, err := writer.NewFileWriter(
 		goPath,
-		int64(maxSizeMB), // ← безопасно привести C.long → int64
+		int64(maxSizeMB),
 		int(maxBackups),
 		goInterval,
 		goCompress,
@@ -101,24 +100,26 @@ func NewFileWriter(path *C.char, maxSizeMB C.long, maxBackups C.int, interval *C
 }
 
 //export NewTextFormatter
-func NewTextFormatter(styleID C.uintptr_t) C.uintptr_t {
+func NewTextFormatter(styleID C.uintptr_t, maxDepth C.int) C.uintptr_t {
 	var style *core.FormatStyle
 	if s, ok := formatStyleStore[uintptr(styleID)]; ok {
 		style = s
 	}
-	formatter := formatter.NewTextFormatter(style)
+	depth := int(maxDepth)
+	formatter := formatter.NewTextFormatter(style, &depth)
 	id := makeID()
 	formatterStore[id] = formatter
 	return C.uintptr_t(id)
 }
 
 //export NewJsonFormatter
-func NewJsonFormatter(styleId C.uintptr_t) C.uintptr_t {
+func NewJsonFormatter(styleId C.uintptr_t, maxDepth C.int) C.uintptr_t {
 	var style *core.FormatStyle
 	if s, ok := formatStyleStore[uintptr(styleId)]; ok {
 		style = s
 	}
-	formatter := formatter.NewJsonFormatter(style)
+	depth := int(maxDepth)
+	formatter := formatter.NewJsonFormatter(style, &depth)
 	id := makeID()
 	formatterStore[id] = formatter
 	return C.uintptr_t(id)
@@ -151,60 +152,79 @@ func NewLoggerWithSingleRoute(routeID C.uintptr_t) C.uintptr_t {
 	return C.uintptr_t(id)
 }
 
-func LogToRoute(routeId C.uintptr_t, level core.LogLevel, msg *C.char, fieldsJSON *C.char) {
+func LogN(loggerId C.uintptr_t, level core.LogLevel,
+	msg *C.char, msgLen C.size_t,
+	fieldsJSON *C.char, fieldsLen C.size_t,
+) {
 	storeMu.Lock()
-	route := routeStore[uintptr(routeId)]
+	lg := loggerStore[uintptr(loggerId)]
 	storeMu.Unlock()
-
-	goMsg := C.GoString(msg)
-	jsonStr := C.GoString(fieldsJSON)
-
-	var fields map[string]interface{}
-	_ = json.Unmarshal([]byte(jsonStr), &fields)
-	if route == nil {
+	if lg == nil {
 		return
 	}
 
-	record := core.LogRecord{
-		Level:     level,
-		Timestamp: time.Now(),
-		Message:   goMsg,
-		Fields:    fields,
+	if !lg.AnyRouteShouldLog(level) {
+		return
+	}
+	rts := lg.RoutesSnapshot()
+
+	var goMsg []byte
+	if msg != nil && msgLen > 0 {
+		goMsg = C.GoBytes(unsafe.Pointer(msg), C.int(msgLen))
+	}
+	var fieldsRaw []byte
+	if fieldsJSON != nil && fieldsLen > 0 {
+		fieldsRaw = C.GoBytes(unsafe.Pointer(fieldsJSON), C.int(fieldsLen))
 	}
 
-	if route.ShouldLog(record) {
-		route.Enqueue(record)
+	record := core.LogRecordRaw{
+		Level:   level,
+		Message: goMsg,
+		Fields:  fieldsRaw,
 	}
+
+	for _, r := range rts {
+		if r != nil && r.ShouldLog(level) {
+			r.Enqueue(record)
+		}
+	}
+
 }
 
-//export Logger_TraceToRoute
-func Logger_TraceToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Trace, msg, fields)
+//export Logger_Trace
+func Logger_Trace(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Trace, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_DebugToRoute
-func Logger_DebugToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Debug, msg, fields)
+//export Logger_Debug
+func Logger_Debug(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Debug, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_InfoToRoute
-func Logger_InfoToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Info, msg, fields)
+//export Logger_Info
+func Logger_Info(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Info, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_WarningToRoute
-func Logger_WarningToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Warning, msg, fields)
+//export Logger_Warning
+func Logger_Warning(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Warning, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_ErrorToRoute
-func Logger_ErrorToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Error, msg, fields)
+//export Logger_Error
+func Logger_Error(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Error, msg, msgLen, fields, fieldsLen)
 }
 
-//export Logger_ExceptionToRoute
-func Logger_ExceptionToRoute(routeId C.uintptr_t, msg *C.char, fields *C.char) {
-	LogToRoute(routeId, core.Exception, msg, fields)
+//export Logger_Exception
+func Logger_Exception(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
+	fields *C.char, fieldsLen C.size_t) {
+	LogN(loggerId, core.Exception, msg, msgLen, fields, fieldsLen)
 }
 
 //export FreeLogger

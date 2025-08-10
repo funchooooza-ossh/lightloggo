@@ -61,3 +61,9 @@ type LogRecord struct {
 	Message   string
 	Fields    map[string]interface{}
 }
+
+type LogRecordRaw struct {
+	Level   LogLevel
+	Message []byte
+	Fields  []byte
+}
