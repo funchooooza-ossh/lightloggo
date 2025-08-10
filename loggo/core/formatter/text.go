@@ -28,7 +28,7 @@ func NewTextFormatter(style *core.FormatStyle, maxDepth *int) *TextFormatter {
 			ColorKeys:   false,
 			ColorValues: false,
 			ColorLevel:  false,
-			KeyColor:    "\033[36m", // голубой
+			KeyColor:    "\033[36m",
 			ValueColor:  "\033[37m",
 			Reset:       "\033[0m",
 		}
@@ -36,29 +36,39 @@ func NewTextFormatter(style *core.FormatStyle, maxDepth *int) *TextFormatter {
 	return &TextFormatter{style: style, MaxDepth: depth}
 }
 
+func (f *TextFormatter) sep() string {
+	return " | "
+}
+func (f *TextFormatter) arrow() string {
+	return " -> "
+}
+
+func (f *TextFormatter) writeStyledLevel(b *bytes.Buffer, lvl core.LogLevel) {
+	if f.style.ColorLevel {
+		b.WriteString(lvl.Color())
+	}
+	b.WriteString(lvl.String())
+	if f.style.ColorLevel {
+		b.WriteString(f.style.Reset)
+	}
+}
+
 func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 	var b bytes.Buffer
 
 	// [timestamp]
-	b.WriteString("[")
 	b.WriteString(r.Timestamp.Format("2006-01-02 15:04:05.000"))
-	b.WriteString("] ")
 
 	// LEVEL
-	if f.style.ColorLevel {
-		b.WriteString(r.Level.Color())
-	}
-	b.WriteString(padLevel(r.Level.String()))
-	if f.style.ColorLevel {
-		b.WriteString(f.style.Reset)
-	}
-	b.WriteByte(' ')
+	b.WriteString(f.sep())
+	f.writeStyledLevel(&b, r.Level)
 
 	// → message
-	b.WriteString("→ ")
+	b.WriteString(f.sep())
+	b.WriteString(f.arrow())
 	b.WriteString(r.Message)
 
-	// поля (отсортированы для стабильности)
+	// sorted fields
 	if len(r.Fields) > 0 {
 		b.WriteString(" |")
 		keys := make([]string, 0, len(r.Fields))
@@ -79,27 +89,25 @@ func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 
 func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited map[uintptr]struct{}) {
 	if depth >= f.MaxDepth {
-		b.WriteString(f.colorizeValue("<max_depth>"))
-		return
+		b.WriteString(f.colorizeValue("<max_depth>")) //depth protect
 	}
 
 	if d, ok := v.(time.Duration); ok {
-		b.WriteString(f.colorizeValue(d.String()))
+		b.WriteString(f.colorizeValue(d.String())) // non reflect type
 		return
 	}
 
 	switch x := v.(type) {
 	case nil:
-		b.WriteString(f.colorizeValue("null"))
+		b.WriteString(f.colorizeValue("null")) // non reflect type
 
 	case string:
 		s := addMultilinePrefix(x)
-		// используем Quote, чтобы гарантировать однострочность (экранированные \n)
 		b.WriteString(f.colorizeValue(strconv.Quote(s)))
 
 	case bool:
 		if x {
-			b.WriteString(f.colorizeValue("true"))
+			b.WriteString(f.colorizeValue("true")) // non reflect scalar boolean
 		} else {
 			b.WriteString(f.colorizeValue("false"))
 		}
@@ -114,7 +122,7 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 		b.WriteString(f.colorizeValue(toFloatString(x)))
 
 	case map[string]any:
-		// защита от циклов на контейнере
+		// cycling protection
 		if ok, release := markAndCheck(reflect.ValueOf(x), visited); !ok {
 			b.WriteString(f.colorizeValue("<cycle>"))
 			return
@@ -139,7 +147,7 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 		b.WriteByte('}')
 
 	case []any:
-		// защита от циклов на контейнере
+		// cycle protection
 		if ok, release := markAndCheck(reflect.ValueOf(x), visited); !ok {
 			b.WriteString(f.colorizeValue("<cycle>"))
 			return
@@ -157,14 +165,13 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 		b.WriteByte(']')
 
 	default:
-		// Рефлект-обход без обращения к JsonFormatter
 		rv := reflect.ValueOf(v)
 		if !rv.IsValid() {
 			b.WriteString(f.colorizeValue("null"))
 			return
 		}
 
-		// защита от циклов на адресуемых типах
+		// cycle protection
 		if ok, release := markAndCheck(rv, visited); !ok {
 			b.WriteString(f.colorizeValue("<cycle>"))
 			return
@@ -188,7 +195,6 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 			f.renderText(b, rv.Elem().Interface(), depth+1, visited)
 
 		case reflect.Struct:
-			// стабильно по алфавиту с учётом json-тегов
 			type kv struct {
 				key string
 				idx int
@@ -236,7 +242,7 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 			b.WriteByte('}')
 
 		case reflect.Map:
-			// только строковые ключи красиво печатаем
+			// only string keys
 			if rv.Type().Key().Kind() != reflect.String {
 				b.WriteString(f.colorizeValue("<unsupported_map_key>"))
 				return
@@ -314,11 +320,4 @@ func (f *TextFormatter) colorizeValue(v string) string {
 		return f.style.ValueColor + v + f.style.Reset
 	}
 	return v
-}
-
-func padLevel(level string) string {
-	if len(level) < 7 {
-		return level + strings.Repeat(" ", 7-len(level))
-	}
-	return level
 }
