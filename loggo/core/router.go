@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// RouteProcessor связывает форматтер и writer, обрабатывает лог-события асинхронно.
 type RouteProcessor struct {
 	Formatter      FormatProcessor
 	Writer         WriteProcessor
@@ -17,7 +16,6 @@ type RouteProcessor struct {
 	mu     sync.RWMutex
 }
 
-// NewRouteProcessor создаёт маршрутизатор логов с указанным форматтером и writer'ом.
 func NewRouteProcessor(formatter FormatProcessor, writer WriteProcessor, level LogLevel) *RouteProcessor {
 	return &RouteProcessor{
 		Formatter:      formatter,
@@ -27,42 +25,39 @@ func NewRouteProcessor(formatter FormatProcessor, writer WriteProcessor, level L
 	}
 }
 
-// ShouldLog проверяет, подходит ли уровень события для этого роута.
 func (r *RouteProcessor) ShouldLog(level LogLevel) bool {
 	return level >= r.LevelThreshold
 }
 
-// Enqueue отправляет событие в очередь логирования (если не закрыто).
+// safe put record into queue, delevery guaranteed
 func (r *RouteProcessor) Enqueue(record LogRecordRaw) {
-	r.mu.RLock()
-	closed := r.closed
-	q := r.queue
-	r.mu.RUnlock()
-	if closed {
+	r.mu.RLock() // lock
+	defer r.mu.RUnlock()
+	if r.closed { //check closed
 		return
 	}
-	q <- record
+	r.queue <- record //delivery asap
 }
 
-// Start запускает обработку очереди в отдельной горутине.
+// reading for queue
 func (r *RouteProcessor) Start(ctx context.Context, wg *sync.WaitGroup) {
-	wg.Add(1)
+	wg.Add(1) //can wait until complete from outside
 	go func() {
-		defer wg.Done()
-		defer r.drainQueue()
+		defer wg.Done()      //guarantee complete signal
+		defer r.drainQueue() //guarantee to process every record in queue before close
 
 		for {
 			select {
 			case rec, ok := <-r.queue:
 				if !ok {
-					return
+					return // if queue closed -> exit
 				}
 				record := rawToRecord(rec)
 				if data, err := r.Formatter.Format(record); err == nil {
 					_ = r.Writer.Write(data)
 				}
 			case <-ctx.Done():
-				// просто ждём закрытия очереди, drain сделает остальное
+				// w8ing queue to close, defer drain will finish processing
 				return
 			}
 		}
@@ -78,7 +73,7 @@ func rawToRecord(rec LogRecordRaw) LogRecord {
 		var key string
 		isKey := true
 
-		for i := 0; i < len(b); i++ {
+		for i := range b {
 			if b[i] == 0 {
 				part := string(b[start:i])
 				if isKey {
@@ -106,9 +101,9 @@ func rawToRecord(rec LogRecordRaw) LogRecord {
 	}
 }
 
-// drainQueue считывает остатки очереди и вызывает Flush().
+// delivery guarantee
 func (r *RouteProcessor) drainQueue() {
-	for rec := range r.queue {
+	for rec := range r.queue { //queue range will work until chan not closed from outside
 		record := rawToRecord(rec)
 		if data, err := r.Formatter.Format(record); err == nil {
 			_ = r.Writer.Write(data)
@@ -120,15 +115,14 @@ func (r *RouteProcessor) drainQueue() {
 	}
 }
 
-// Close завершает работу: закрывает очередь (если ещё нет).
 func (r *RouteProcessor) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.closed {
+	if r.closed { // if closed -> return
 		return
 	}
 
-	close(r.queue)
-	r.closed = true
+	close(r.queue)  // else close
+	r.closed = true //set flag
 }
