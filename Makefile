@@ -1,7 +1,7 @@
 GO            ?= go
 EXPORT_DIR    := ./loggo/export
-OUT_DIR       := ./pyloggo/ffi
-LIB  := loggo
+OUT_DIR       := ./lightloggo/ffi
+LIB  := lightloggo
 
 # --- Tools ---
 MINGW_CC    := x86_64-w64-mingw32-gcc

@@ -1,24 +1,24 @@
-# pyloggo
+# lightloggo
 
-**pyloggo** is a structured, high-performance logging system built in Go with a Python FFI bridge. It allows fine-grained customization of log formatting, routing, and output, while exposing a clean Pythonic interface inspired by [loguru](https://github.com/Delgan/loguru).
+**lightloggo** is a structured, high-performance logging system built in Go with a Python FFI bridge. It allows fine-grained customization of log formatting, routing, and output, while exposing a clean Pythonic interface inspired by [loguru](https://github.com/Delgan/loguru).
 
 ## Why
 
 I’ve never been satisfied with existing logging libraries:
 
-- Some are outdated and difficult to extend  
-- Others lack structured logging and proper routing  
-- Many are too slow for production-scale use  
+- Some are outdated and difficult to extend
+- Others lack structured logging and proper routing
+- Many are too slow for production-scale use
 
 So I decided to write my own lightweight logging system — primarily for learning, performance, and control.
 
 ## Overview
 
-- The core is implemented in Go for speed and async I/O  
-- Log routing is configurable with formatters and writers  
-- JSON and colorized text formats are supported  
-- Log rotation and compression (e.g. `.gz`) built in  
-- Exposed to Python via `ctypes` using `.so` bridge  
+- The core is implemented in Go for speed and async I/O
+- Log routing is configurable with formatters and writers
+- JSON and colorized text formats are supported
+- Log rotation and compression (e.g. `.gz`) built in
+- Exposed to Python via `ctypes` using `.so` bridge
 - Python side gives an interface similar to `loguru`
 
 ## Usage

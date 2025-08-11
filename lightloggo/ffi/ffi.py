@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import ctypes as C
 import os
+import sys
 from typing import Callable, Union
 
 try:
@@ -10,8 +13,39 @@ except ImportError:
 BytesLike = Union[bytes, bytearray, memoryview]
 StrOrBytesLike = Union[str, BytesLike]
 
-lib_path = os.path.join(os.path.dirname(__file__), "loggo.so")
-lib = C.CDLL(lib_path)
+
+def _lib_filename() -> str:
+    # Windows: .dll, macOS: .dylib, Linux/Unix: .so
+    if sys.platform.startswith("win"):
+        return "lightloggo.dll"
+    elif sys.platform == "darwin":
+        return "lightloggo.dylib"
+    else:
+        return "lightloggo.so"
+
+
+def _candidate_paths() -> list[str]:
+    here = os.path.dirname(__file__)
+    return [os.path.join(here, _lib_filename())]
+
+
+def _load_lib() -> C.CDLL:
+    last_exc: Exception | None = None
+    for path in _candidate_paths():
+        try:
+            return C.CDLL(os.path.abspath(path))
+        except OSError as e:
+            last_exc = e
+    tried = "\n  - ".join(_candidate_paths())
+    raise OSError(
+        "Failed to load the native loggo library for platform "
+        f"{sys.platform!r}. Tried paths:\n  - {tried}\n"
+        f"Current working directory: {os.getcwd()}\n"
+        f"Last error: {last_exc}"
+    )
+
+
+lib: C.CDLL = _load_lib()
 
 # uintptr_t на стороне C/Go → используем c_size_t
 ID_T = C.c_size_t

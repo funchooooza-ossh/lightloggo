@@ -1,5 +1,5 @@
 [project]
-name = "pyloggo"
+name = "lightloggo"
 version = "0.1.0"
 description = "High-performance structured Python logger"
 readme = "README.md"
@@ -34,4 +34,4 @@ fix = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pyloggo*"]
+include = ["lightloggo*"]
