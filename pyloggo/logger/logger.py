@@ -1,34 +1,52 @@
-from ..ffi.ffi import log_call, _as_bytes
-from ..json import _serialize_fields
-from ..route import RouteProcessor
-from ..c import CLogger
-import sys
+import contextlib
 import linecache
 import os
+import sys
+from typing import Any, Dict, List
+
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # type: ignore
+
+from .._help import _serialize_fields
+from ..c import CLogger
 from ..enums import LogLevel
-from typing import Any 
+from ..ffi.ffi import _as_bytes, log_call
+from ..routers import RouteProcessor
 
 
 class _Logger:
-    def __init__(self, routes: list[RouteProcessor],
+    def __init__(
+        self,
+        routes: List[RouteProcessor],
         tb: bool = False,
         tb_max_depth: int = 10,
         tb_level: int = 50,
-        scope: bool = True) -> None:
+        scope: bool = True,
+    ) -> None:
         route_ids = [r.id for r in routes]
         self._c_logger = CLogger(route_ids)
         self._routes = routes
         self._tb = tb
-        self._tb_max_depth=tb_max_depth
+        self._tb_max_depth = tb_max_depth
         self._scope = scope
-        self._tb_level=tb_level
+        self._tb_level = tb_level
 
     @property
     def id(self) -> int:
         return self._c_logger._id
 
-    def _log(self, method: str, msg: str, **kwargs) -> None:
-        level = getattr(LogLevel, method.capitalize()) 
+    def _log(
+        self,
+        method: Literal["trace", "debug", "info", "warning", "error", "exception"],
+        msg: str,
+        **kwargs: Any,
+    ) -> None:
+        if not msg and not kwargs:
+            return
+
+        level = getattr(LogLevel, method.capitalize())
         msg_b = _as_bytes(msg)
         if not kwargs:
             fields_b = b"0"
@@ -39,8 +57,8 @@ class _Logger:
     def _resolve_fields(
         self,
         level: LogLevel,
-        fields: dict[str, Any],
-    ) -> dict[str, Any]:
+        fields: Dict[str, Any],
+    ) -> Dict[str, Any]:
         fields_cp = dict(fields)
         tb = False
         if self._tb and self._tb_level <= level:
@@ -86,36 +104,32 @@ class _Logger:
 
         return "".join(lines)
 
-    def trace(self, msg: str, **kwargs):
+    def trace(self, msg: str, **kwargs: Any) -> None:
         self._log("trace", msg, **kwargs)
 
-    def debug(self, msg: str, **kwargs):
+    def debug(self, msg: str, **kwargs: Any) -> None:
         self._log("debug", msg, **kwargs)
 
-    def info(self, msg: str, **kwargs):
+    def info(self, msg: str, **kwargs: Any) -> None:
         self._log("info", msg, **kwargs)
 
-    def warning(self, msg: str, **kwargs):
+    def warning(self, msg: str, **kwargs: Any) -> None:
         self._log("warning", msg, **kwargs)
 
-    def error(self, msg: str, **kwargs):
+    def error(self, msg: str, **kwargs: Any) -> None:
         self._log("error", msg, **kwargs)
 
-    def exception(self, msg: str, **kwargs):
+    def exception(self, msg: str, **kwargs: Any) -> None:
         self._log("exception", msg, **kwargs)
 
-    def close(self):
+    def close(self) -> None:
         self._c_logger.close()
 
-    def __del__(self):
-        try:
+    def __del__(self) -> None:
+        with contextlib.suppress(Exception):
             self.close()
-        except Exception:
-            pass
 
 
 def create_default_logger() -> _Logger:
     router = RouteProcessor()
     return _Logger([router])
-
-

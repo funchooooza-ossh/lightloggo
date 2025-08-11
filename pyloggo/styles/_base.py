@@ -1,4 +1,4 @@
-from .c import CFormatStyle, CStyle
+from ..c import CFormatStyle, CStyle
 
 
 class BaseStyle:
@@ -14,13 +14,13 @@ class BaseStyle:
 class FormatStyle(BaseStyle):
     def __init__(
         self,
-        color_keys=True,
-        color_values=True,
-        color_level=False,
-        key_color="\033[34m",
-        value_color="\033[33m",
-        reset="\033[0m",
-    ):
+        color_keys: bool = True,
+        color_values: bool = True,
+        color_level: bool = False,
+        key_color: str = "\033[34m",
+        value_color: str = "\033[33m",
+        reset: str = "\033[0m",
+    ) -> None:
         self._c_style = CFormatStyle(
             color_keys=color_keys,
             color_values=color_values,
