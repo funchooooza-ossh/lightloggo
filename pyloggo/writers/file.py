@@ -1,13 +1,5 @@
-from typing import Union
-from .c import CFileWriter, CStdoutWriter, CWriter
-
-
-class writer:
-    _c_writer: CWriter
-
-    @property
-    def id(self) -> int:
-        return self._c_writer._id
+from ..c import CFileWriter
+from ._base import writer
 
 
 class FileWriter(writer):
@@ -18,7 +10,7 @@ class FileWriter(writer):
         max_backups: int = 5,
         interval: str = "day",  # "day", "week", "month"
         compress: str = "gz",  # "gz" or ""
-    ):
+    ) -> None:
         self._c_writer = CFileWriter(
             path=path,
             max_backups=max_backups,
@@ -26,11 +18,3 @@ class FileWriter(writer):
             interval=interval,
             compress=compress,
         )
-
-
-class StdoutWriter(writer):
-    def __init__(self):
-        self._c_writer = CStdoutWriter()
-
-
-Writer = Union[FileWriter, StdoutWriter]
