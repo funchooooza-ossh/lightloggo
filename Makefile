@@ -1,6 +1,6 @@
 GO            ?= go
-EXPORT_DIR    := ./lightloggo/export
-OUT_DIR       := ./pylightloggo/ffi
+EXPORT_DIR    := ./loggo/export
+OUT_DIR       := ./lightloggo/ffi
 LIB  := lightloggo
 
 # --- Tools ---
