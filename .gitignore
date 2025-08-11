@@ -5,3 +5,7 @@ __pycache__
 .venv
 .idea
 .vscode
+*.egg-info
+uv.lock
+*.dll
+*.dylib
