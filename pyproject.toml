@@ -1,0 +1,37 @@
+[project]
+name = "pyloggo"
+version = "0.1.0"
+description = "High-performance structured Python logger"
+readme = "README.md"
+requires-python = ">=3.7, <= 3.13"
+license = {text = "MIT"}
+authors = [{ name = "funchooooza-ossh" }]
+dependencies = [
+  "typing-extensions>=4.7.1; python_version<'3.8'",
+  "importlib-metadata>=6.0; python_version<'3.8'",
+  "backports.zoneinfo>=0.2.1; python_version<'3.9'",
+]
+
+
+[build-system]
+requires = ["setuptools<70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 88
+target-version = "py37"
+lint.select = [
+    "I", "Q", "E", "W", "F", "UP", "C", "B", "S", "ISC", "ASYNC", "T20",
+    "ANN", "TCH", "PT", "RUF", "C90", "SIM",
+]
+lint.ignore = [
+    "E501", "B008", "F821", "UP007", "UP032", "ANN401", "RUF012", "RUF002",
+    "RUF001", "RUF003", "RUF100", "W291", "TC003", "UP006"
+]
+lint.per-file-ignores = {"__init__.py" = ["F401"], "conftest.py" = ["F401", "ANN001", "ANN201"], "tests/*" = ["S", "PT012"]}
+fix = true
+
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyloggo*"]
