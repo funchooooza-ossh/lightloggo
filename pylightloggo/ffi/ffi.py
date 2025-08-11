@@ -17,11 +17,11 @@ StrOrBytesLike = Union[str, BytesLike]
 def _lib_filename() -> str:
     # Windows: .dll, macOS: .dylib, Linux/Unix: .so
     if sys.platform.startswith("win"):
-        return "loggo.dll"
+        return "lightloggo.dll"
     elif sys.platform == "darwin":
-        return "loggo.dylib"
+        return "lightloggo.dylib"
     else:
-        return "loggo.so"
+        return "lightloggo.so"
 
 
 def _candidate_paths() -> list[str]:
