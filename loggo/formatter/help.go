@@ -53,5 +53,5 @@ func addMultilinePrefix(s string) string {
 		return s
 	}
 	s = strings.ReplaceAll(s, "\r\n", "\n")
-	return strings.ReplaceAll(s, "\n", "\n│ ")
+	return strings.ReplaceAll(s, "\n", "\n| ")
 }
