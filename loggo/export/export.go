@@ -15,19 +15,21 @@ import (
 )
 
 var (
-	loggerStore              = map[uintptr]*core.Logger{}
-	routeStore               = map[uintptr]*core.RouteProcessor{}
-	formatStyleStore         = map[uintptr]*core.FormatStyle{}
-	formatterStore           = map[uintptr]core.FormatProcessor{}
-	writerStore              = map[uintptr]core.WriteProcessor{}
-	compressorStore          = map[uintptr]core.WriteProcessor{}
-	currentID        uintptr = 1
-	storeMu          sync.Mutex
+	loggerStore      = map[uintptr]*core.Logger{}
+	routeStore       = map[uintptr]*core.RouteProcessor{}
+	formatStyleStore = map[uintptr]*core.FormatStyle{}
+	formatterStore   = map[uintptr]core.FormatProcessor{}
+	writerStore      = map[uintptr]core.WriteProcessor{}
+	dependencyStore  = map[uintptr][]uintptr{}
+
+	currentID uintptr = 1
+	storeMu   sync.Mutex
 )
 
 func makeID() uintptr {
 	storeMu.Lock()
 	defer storeMu.Unlock()
+
 	id := currentID
 	currentID++
 	return id
@@ -35,6 +37,9 @@ func makeID() uintptr {
 
 //export NewLoggerWithRoutes
 func NewLoggerWithRoutes(routeIDs *C.uintptr_t, count C.int) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	routes := make([]*core.RouteProcessor, 0, int(count))
 
 	// конвертация C-массива → Go-слайс
@@ -55,17 +60,27 @@ func NewLoggerWithRoutes(routeIDs *C.uintptr_t, count C.int) C.uintptr_t {
 
 //export NewRouteProcessor
 func NewRouteProcessor(formatterID, writerID C.uintptr_t, level C.uintptr_t) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	formatter := formatterStore[uintptr(formatterID)]
 	writer := writerStore[uintptr(writerID)]
 
 	route := core.NewRouteProcessor(formatter, writer, core.LogLevel(level))
+
 	id := makeID()
 	routeStore[id] = route
+
+	dependencyStore[id] = []uintptr{uintptr(formatterID), uintptr(writerID)}
+
 	return C.uintptr_t(id)
 }
 
 //export NewStdoutWriter
 func NewStdoutWriter() C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	writer := &writer.StdoutWriter{}
 	id := makeID()
 	writerStore[id] = writer
@@ -74,6 +89,9 @@ func NewStdoutWriter() C.uintptr_t {
 
 //export NewFileWriter
 func NewFileWriter(path *C.char, maxSizeMB C.long, maxBackups C.int, interval *C.char, compress *C.char) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	goPath := C.GoString(path)
 	goInterval := writer.RotateInterval(C.GoString(interval))
 
@@ -101,32 +119,51 @@ func NewFileWriter(path *C.char, maxSizeMB C.long, maxBackups C.int, interval *C
 
 //export NewTextFormatter
 func NewTextFormatter(styleID C.uintptr_t, maxDepth C.int) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	var style *core.FormatStyle
 	if s, ok := formatStyleStore[uintptr(styleID)]; ok {
 		style = s
 	}
+
 	depth := int(maxDepth)
+
 	formatter := formatter.NewTextFormatter(style, &depth)
+
 	id := makeID()
 	formatterStore[id] = formatter
+	dependencyStore[id] = []uintptr{uintptr(styleID)}
+
 	return C.uintptr_t(id)
 }
 
 //export NewJsonFormatter
 func NewJsonFormatter(styleId C.uintptr_t, maxDepth C.int) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	var style *core.FormatStyle
 	if s, ok := formatStyleStore[uintptr(styleId)]; ok {
 		style = s
 	}
+
 	depth := int(maxDepth)
+
 	formatter := formatter.NewJsonFormatter(style, &depth)
+
 	id := makeID()
 	formatterStore[id] = formatter
+	dependencyStore[id] = []uintptr{uintptr(styleId)}
+
 	return C.uintptr_t(id)
 }
 
 //export NewFormatStyle
 func NewFormatStyle(colorKeys, colorValues, colorLevel C.uintptr_t, keyColor, valueColor, reset *C.char) C.uintptr_t {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
 	style := &core.FormatStyle{
 		ColorKeys:   colorKeys != 0,
 		ColorValues: colorValues != 0,
@@ -135,6 +172,7 @@ func NewFormatStyle(colorKeys, colorValues, colorLevel C.uintptr_t, keyColor, va
 		ValueColor:  C.GoString(valueColor),
 		Reset:       C.GoString(reset),
 	}
+
 	id := makeID()
 	formatStyleStore[id] = style
 	return C.uintptr_t(id)
@@ -147,8 +185,11 @@ func NewLoggerWithSingleRoute(routeID C.uintptr_t) C.uintptr_t {
 
 	route := routeStore[uintptr(routeID)]
 	logger := core.NewLogger(route)
+
 	id := makeID()
 	loggerStore[id] = logger
+	dependencyStore[id] = []uintptr{uintptr(routeID)}
+
 	return C.uintptr_t(id)
 }
 
@@ -225,13 +266,44 @@ func Logger_Error(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 func Logger_Exception(loggerId C.uintptr_t, msg *C.char, msgLen C.size_t,
 	fields *C.char, fieldsLen C.size_t) {
 	LogN(loggerId, core.Exception, msg, msgLen, fields, fieldsLen)
+
+}
+
+func freeComponentAndDeps(id uintptr) {
+	if deps, ok := dependencyStore[id]; ok {
+		for _, depId := range deps {
+			freeComponentAndDeps(depId)
+		}
+	}
+
+	callCloseIfAvailable(id)
+	deleteFromAllStores(id)
+
+	delete(dependencyStore, id)
+}
+
+func callCloseIfAvailable(id uintptr) {
+	if router, ok := routeStore[id]; ok {
+		router.Close()
+	}
+	if logger, ok := loggerStore[id]; ok {
+		logger.Close()
+	}
+}
+
+func deleteFromAllStores(id uintptr) {
+	delete(loggerStore, id)
+	delete(routeStore, id)
+	delete(formatStyleStore, id)
+	delete(formatterStore, id)
+	delete(writerStore, id)
 }
 
 //export FreeLogger
 func FreeLogger(loggerID C.uintptr_t) {
 	storeMu.Lock()
 	defer storeMu.Unlock()
-	delete(loggerStore, uintptr(loggerID))
+	freeComponentAndDeps(uintptr(loggerID))
 }
 
 //export Logger_Close
