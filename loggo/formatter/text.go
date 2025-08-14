@@ -1,3 +1,5 @@
+// Package formatter provides concrete implementations of the core.FormatProcessor
+// interface, such as formatters for plain text and JSON.
 package formatter
 
 import (
@@ -11,11 +13,16 @@ import (
 	"time"
 )
 
+// TextFormatter serializes a LogRecord into a human-readable, single-line text format.
+// It supports custom styling (colors) and deep rendering of structured data.
 type TextFormatter struct {
 	style    *core.FormatStyle
 	MaxDepth int
 }
 
+// NewTextFormatter is the constructor for TextFormatter.
+// If a nil style is provided, a default, non-colored style is used.
+// If a nil maxDepth is provided, a default depth is used.
 func NewTextFormatter(style *core.FormatStyle, maxDepth *int) *TextFormatter {
 	var depth int
 	if maxDepth == nil {
@@ -23,28 +30,26 @@ func NewTextFormatter(style *core.FormatStyle, maxDepth *int) *TextFormatter {
 	} else {
 		depth = *maxDepth
 	}
+
 	if style == nil {
-		style = &core.FormatStyle{
-			ColorKeys:   false,
-			ColorValues: false,
-			ColorLevel:  false,
-			KeyColor:    "\033[36m", // голубой
-			ValueColor:  "\033[37m",
-			Reset:       "\033[0m",
-		}
+		style = core.NewDefaultStyle()
 	}
+
 	return &TextFormatter{style: style, MaxDepth: depth}
 }
 
+// Format takes a LogRecord and transforms it into a formatted byte slice.
+// This implementation is guaranteed to not return an error.
 func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 	var b bytes.Buffer
 
-	// [timestamp]
+	// 1. Add timestamp in a fixed format.
+	// Example: [2025-08-14 15:30:00.000]
 	b.WriteString("[")
 	b.WriteString(r.Timestamp.Format("2006-01-02 15:04:05.000"))
 	b.WriteString("] ")
 
-	// LEVEL
+	// 2. Add the log level, padded for alignment, with optional color.
 	if f.style.ColorLevel {
 		b.WriteString(r.Level.Color())
 	}
@@ -54,117 +59,72 @@ func (f *TextFormatter) Format(r core.LogRecord) ([]byte, error) {
 	}
 	b.WriteByte(' ')
 
-	// → message
+	// 3. Add the main log message.
 	b.WriteString("→ ")
 	b.WriteString(r.Message)
 
-	// поля (отсортированы для стабильности)
+	// 4. Add structured fields if they exist.
 	if len(r.Fields) > 0 {
 		b.WriteString(" |")
+		// Sort keys to ensure a stable, deterministic output order.
 		keys := make([]string, 0, len(r.Fields))
 		for k := range r.Fields {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
+
+		// A map to track visited pointers to prevent infinite loops in cyclic data.
 		visited := make(map[uintptr]struct{})
 		for _, k := range keys {
 			b.WriteByte(' ')
 			b.WriteString(f.colorizeKey(k))
 			b.WriteByte('=')
+			// Delegate the complex task of value rendering to the renderText function.
 			f.renderText(&b, r.Fields[k], 0, visited)
 		}
 	}
+
 	return b.Bytes(), nil
 }
 
+// renderText is the recursive core of the formatter. It inspects the type of `v`
+// and writes its string representation into the buffer `b`.
+// It handles simple types directly and delegates complex ones to specialized methods.
 func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited map[uintptr]struct{}) {
+	// --- Base cases for recursion termination ---
 	if depth >= f.MaxDepth {
 		b.WriteString(f.colorizeValue("<max_depth>"))
 		return
 	}
-
 	if d, ok := v.(time.Duration); ok {
 		b.WriteString(f.colorizeValue(d.String()))
 		return
 	}
 
+	// --- Fast path for common, simple types ---
 	switch x := v.(type) {
 	case nil:
 		b.WriteString(f.colorizeValue("null"))
-
 	case string:
 		s := addMultilinePrefix(x)
-		// используем Quote, чтобы гарантировать однострочность (экранированные \n)
 		b.WriteString(f.colorizeValue(strconv.Quote(s)))
-
 	case bool:
-		if x {
-			b.WriteString(f.colorizeValue("true"))
-		} else {
-			b.WriteString(f.colorizeValue("false"))
-		}
-
+		b.WriteString(f.colorizeValue(strconv.FormatBool(x)))
 	case int, int8, int16, int32, int64:
 		b.WriteString(f.colorizeValue(strconv.FormatInt(reflect.ValueOf(x).Int(), 10)))
-
 	case uint, uint8, uint16, uint32, uint64, uintptr:
 		b.WriteString(f.colorizeValue(strconv.FormatUint(reflect.ValueOf(x).Uint(), 10)))
-
 	case float32, float64:
 		b.WriteString(f.colorizeValue(toFloatString(x)))
 
-	case map[string]any:
-		// защита от циклов на контейнере
-		if ok, release := markAndCheck(reflect.ValueOf(x), visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
-
-		b.WriteByte('{')
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for i, k := range keys {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(f.colorizeKey(k))
-			b.WriteString(": ")
-			f.renderText(b, x[k], depth+1, visited)
-		}
-		b.WriteByte('}')
-
-	case []any:
-		// защита от циклов на контейнере
-		if ok, release := markAndCheck(reflect.ValueOf(x), visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
-
-		b.WriteByte('[')
-		for i := range x {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			f.renderText(b, x[i], depth+1, visited)
-		}
-		b.WriteByte(']')
-
+	// --- Slower path using reflection for complex types ---
 	default:
-		// Рефлект-обход без обращения к JsonFormatter
 		rv := reflect.ValueOf(v)
 		if !rv.IsValid() {
 			b.WriteString(f.colorizeValue("null"))
 			return
 		}
 
-		// защита от циклов на адресуемых типах
 		if ok, release := markAndCheck(rv, visited); !ok {
 			b.WriteString(f.colorizeValue("<cycle>"))
 			return
@@ -173,135 +133,31 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 		}
 
 		switch rv.Kind() {
-		case reflect.Ptr:
+		case reflect.Ptr, reflect.Interface:
 			if rv.IsNil() {
 				b.WriteString(f.colorizeValue("null"))
 				return
 			}
 			f.renderText(b, rv.Elem().Interface(), depth+1, visited)
 
-		case reflect.Interface:
-			if rv.IsNil() {
-				b.WriteString(f.colorizeValue("null"))
-				return
-			}
-			f.renderText(b, rv.Elem().Interface(), depth+1, visited)
-
+		// --- DELEGATION TO HELPER METHODS ---
 		case reflect.Struct:
-			// стабильно по алфавиту с учётом json-тегов
-			type kv struct {
-				key string
-				idx int
-			}
-			t := rv.Type()
-			fields := make([]kv, 0, rv.NumField())
-			for i := 0; i < rv.NumField(); i++ {
-				sf := t.Field(i)
-				if sf.PkgPath != "" {
-					continue
-				} // unexported
-				key := sf.Name
-				if tag := sf.Tag.Get("json"); tag != "" {
-					parts := strings.Split(tag, ",")
-					if parts[0] == "-" {
-						continue
-					}
-					if parts[0] != "" {
-						key = parts[0]
-					}
-					for _, opt := range parts[1:] {
-						if opt == "omitempty" && rv.Field(i).IsZero() {
-							key = ""
-							break
-						}
-					}
-					if key == "" {
-						continue
-					}
-				}
-				fields = append(fields, kv{key, i})
-
-			}
-			sort.Slice(fields, func(i, j int) bool { return fields[i].key < fields[j].key })
-
-			b.WriteByte('{')
-			for i, fdef := range fields {
-				if i > 0 {
-					b.WriteString(", ")
-				}
-				b.WriteString(f.colorizeKey(fdef.key))
-				b.WriteString(": ")
-				f.renderText(b, rv.Field(fdef.idx).Interface(), depth+1, visited)
-			}
-			b.WriteByte('}')
-
+			f.renderStruct(b, rv, depth, visited)
 		case reflect.Map:
-			// только строковые ключи красиво печатаем
-			if rv.Type().Key().Kind() != reflect.String {
-				b.WriteString(f.colorizeValue("<unsupported_map_key>"))
-				return
-			}
-			keys := rv.MapKeys()
-			ss := make([]string, len(keys))
-			for i, k := range keys {
-				ss[i] = k.String()
-			}
-			sort.Strings(ss)
-
-			b.WriteByte('{')
-			for i, k := range ss {
-				if i > 0 {
-					b.WriteString(", ")
-				}
-				b.WriteString(f.colorizeKey(k))
-				b.WriteString(": ")
-				f.renderText(b, rv.MapIndex(reflect.ValueOf(k)).Interface(), depth+1, visited)
-			}
-			b.WriteByte('}')
-
+			f.renderMap(b, rv, depth, visited)
 		case reflect.Slice, reflect.Array:
-			if rv.Type().Elem().Kind() == reflect.Uint8 {
-				b.WriteString(f.colorizeValue(fmt.Sprintf("[]byte(%d)", rv.Len())))
-				return
-			}
-			n := rv.Len()
-			b.WriteByte('[')
-			for i := 0; i < n; i++ {
-				if i > 0 {
-					b.WriteString(", ")
-				}
-				f.renderText(b, rv.Index(i).Interface(), depth+1, visited)
-			}
-			b.WriteByte(']')
-
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			b.WriteString(f.colorizeValue(strconv.FormatInt(rv.Int(), 10)))
-
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-			b.WriteString(f.colorizeValue(strconv.FormatUint(rv.Uint(), 10)))
-
-		case reflect.Float32:
-			b.WriteString(f.colorizeValue(strconv.FormatFloat(rv.Float(), 'f', -1, 32)))
-		case reflect.Float64:
-			b.WriteString(f.colorizeValue(strconv.FormatFloat(rv.Float(), 'f', -1, 64)))
-
-		case reflect.Bool:
-			if rv.Bool() {
-				b.WriteString(f.colorizeValue("true"))
-			} else {
-				b.WriteString(f.colorizeValue("false"))
-			}
-
-		case reflect.String:
-			s := addMultilinePrefix(rv.String())
-			b.WriteString(f.colorizeValue(strconv.Quote(s)))
+			f.renderSlice(b, rv, depth, visited)
 
 		default:
+			// Fallback for any other unhandled primitive-like type.
 			b.WriteString(f.colorizeValue(fmt.Sprint(v)))
 		}
 	}
 }
 
+// --- Private helper methods for rendering ---
+
+// colorizeKey applies color to a key string if style.ColorKeys is enabled.
 func (f *TextFormatter) colorizeKey(k string) string {
 	if f.style.ColorKeys {
 		return f.style.KeyColor + k + f.style.Reset
@@ -309,6 +165,7 @@ func (f *TextFormatter) colorizeKey(k string) string {
 	return k
 }
 
+// colorizeValue applies color to a value string if style.ColorValues is enabled.
 func (f *TextFormatter) colorizeValue(v string) string {
 	if f.style.ColorValues {
 		return f.style.ValueColor + v + f.style.Reset
@@ -316,9 +173,108 @@ func (f *TextFormatter) colorizeValue(v string) string {
 	return v
 }
 
+// padLevel adds padding to a log level string for consistent alignment.
 func padLevel(level string) string {
-	if len(level) < 7 {
-		return level + strings.Repeat(" ", 7-len(level))
+	const minWidth = 7
+	if len(level) < minWidth {
+		return level + strings.Repeat(" ", minWidth-len(level))
 	}
 	return level
+}
+
+// renderStruct handles the reflection-based rendering of struct types.
+// It respects `json` tags for field naming, skipping, and omitempty options.
+// Fields are sorted alphabetically by their effective key for stable output.
+func (f *TextFormatter) renderStruct(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+	type kv struct {
+		key string
+		idx int
+	}
+	t := rv.Type()
+	fields := make([]kv, 0, rv.NumField())
+	for i := 0; i < rv.NumField(); i++ {
+		sf := t.Field(i)
+		if sf.PkgPath != "" { // Skip unexported fields
+			continue
+		}
+		key := sf.Name
+		if tag := sf.Tag.Get("json"); tag != "" {
+			parts := strings.Split(tag, ",")
+			if parts[0] == "-" {
+				continue
+			}
+			if parts[0] != "" {
+				key = parts[0]
+			}
+			for _, opt := range parts[1:] {
+				if opt == "omitempty" && rv.Field(i).IsZero() {
+					key = "" // Mark for skipping
+					break
+				}
+			}
+			if key == "" {
+				continue
+			}
+		}
+		fields = append(fields, kv{key, i})
+	}
+	sort.Slice(fields, func(i, j int) bool { return fields[i].key < fields[j].key })
+
+	b.WriteByte('{')
+	for i, fdef := range fields {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(f.colorizeKey(fdef.key))
+		b.WriteString(": ")
+		f.renderText(b, rv.Field(fdef.idx).Interface(), depth+1, visited)
+	}
+	b.WriteByte('}')
+}
+
+// renderMap handles the reflection-based rendering of map types.
+// It sorts maps by their keys to ensure a stable, deterministic output.
+// Only maps with string keys are fully rendered; others are marked as unsupported.
+func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+	if rv.Type().Key().Kind() != reflect.String {
+		b.WriteString(f.colorizeValue("<unsupported_map_key>"))
+		return
+	}
+	keys := rv.MapKeys()
+	// Sort keys for stable output
+	ss := make([]string, len(keys))
+	for i, k := range keys {
+		ss[i] = k.String()
+	}
+	sort.Strings(ss)
+
+	b.WriteByte('{')
+	for i, k := range ss {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(f.colorizeKey(k))
+		b.WriteString(": ")
+		f.renderText(b, rv.MapIndex(reflect.ValueOf(k)).Interface(), depth+1, visited)
+	}
+	b.WriteByte('}')
+}
+
+// renderSlice handles the reflection-based rendering of slice and array types.
+// It provides special handling for []byte for a more concise output.
+func (f *TextFormatter) renderSlice(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+	// Special, concise representation for byte slices.
+	if rv.Type().Elem().Kind() == reflect.Uint8 {
+		b.WriteString(f.colorizeValue(fmt.Sprintf("[]byte(%d)", rv.Len())))
+		return
+	}
+	n := rv.Len()
+	b.WriteByte('[')
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		f.renderText(b, rv.Index(i).Interface(), depth+1, visited)
+	}
+	b.WriteByte(']')
 }
