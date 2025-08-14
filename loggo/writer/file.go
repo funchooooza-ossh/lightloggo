@@ -3,8 +3,8 @@ package writer
 import (
 	"bufio"
 	"fmt"
+	"funchooooza-ossh/loggo/compressor"
 	"funchooooza-ossh/loggo/core"
-	"funchooooza-ossh/loggo/core/compressor"
 	"os"
 	"path/filepath"
 	"sort"

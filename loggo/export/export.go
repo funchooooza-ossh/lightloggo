@@ -8,8 +8,8 @@ import "C"
 
 import (
 	"funchooooza-ossh/loggo/core"
-	"funchooooza-ossh/loggo/core/formatter"
-	"funchooooza-ossh/loggo/core/writer"
+	"funchooooza-ossh/loggo/formatter"
+	"funchooooza-ossh/loggo/writer"
 	"sync"
 	"unsafe"
 )
