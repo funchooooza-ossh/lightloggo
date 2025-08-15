@@ -11,7 +11,7 @@ import (
 
 // TestHelpers is a container for testing small, pure utility functions
 // used by the TextFormatter.
-func TestHelpers(t *testing.T) {
+func TestTextHelpers(t *testing.T) {
 
 	// --- Sub-test for padLevel ---
 	t.Run("padLevel", func(t *testing.T) {
