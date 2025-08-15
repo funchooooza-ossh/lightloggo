@@ -165,6 +165,12 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 			b.WriteString("null")
 			return
 		}
+		if ok, release := markAndCheck(rv, visited); !ok {
+			writeJSONString(b, "<cycle>")
+			return
+		} else {
+			defer release()
+		}
 		f.writeJSON(b, rv.Elem().Interface(), depth+1, visited)
 	//ANCHOR: Struct
 	case reflect.Struct:
