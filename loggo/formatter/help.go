@@ -21,7 +21,7 @@ func toFloatString(v interface{}) string {
 // release() нужно вызвать при выходе из узла (обычно через defer).
 func markAndCheck(rv reflect.Value, visited map[uintptr]struct{}) (ok bool, release func()) {
 	switch rv.Kind() {
-	case reflect.Ptr, reflect.Slice, reflect.Map, reflect.Func, reflect.Chan, reflect.UnsafePointer:
+	case reflect.Ptr, reflect.Map, reflect.Func, reflect.Chan, reflect.UnsafePointer:
 		p := rv.Pointer()
 		if p != 0 {
 			if _, seen := visited[p]; seen {
@@ -30,7 +30,7 @@ func markAndCheck(rv reflect.Value, visited map[uintptr]struct{}) (ok bool, rele
 			visited[p] = struct{}{}
 			return true, func() { delete(visited, p) }
 		}
-	case reflect.Struct:
+	case reflect.Struct, reflect.Slice, reflect.Array:
 		if rv.CanAddr() {
 			p := rv.Addr().Pointer()
 			if p != 0 {
