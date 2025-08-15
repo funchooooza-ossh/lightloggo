@@ -165,24 +165,18 @@ func (f *JsonFormatter) writeByReflect(b *bytes.Buffer, v any, depth int, visite
 			b.WriteString("null")
 			return
 		}
-		if ok, release := markAndCheck(rv, visited); !ok {
-			writeJSONString(b, "<cycle>")
-			return
-		} else {
-			defer release()
-		}
 		f.writeJSON(b, rv.Elem().Interface(), depth+1, visited)
 	//ANCHOR: Struct
 	case reflect.Struct:
-		f.writeStructByReflect(b, rv, depth, visited)
+		f.writeStructByReflect(b, rv, depth, visited, false)
 	//ANCHOR: Map
 	case reflect.Map:
-		f.writeMapByReflect(b, rv, depth, visited)
+		f.writeMapByReflect(b, rv, depth, visited, false)
 
 	//ANCHOR: SLICE, ARRAYS, BYTE
 	case reflect.Slice, reflect.Array:
 		// NOTE: []byte / [N]byte / alias of []byte -> base64 string
-		f.writeSliceOrArrayByReflect(b, rv, depth, visited)
+		f.writeSliceOrArrayByReflect(b, rv, depth, visited, false)
 
 	default:
 		writeJSONString(b, fmt.Sprintf("<unsupported:%s>", rv.Kind().String()))
@@ -228,7 +222,15 @@ func writeJSONFloat(b *bytes.Buffer, f float64) {
 	}
 }
 
-func (f *JsonFormatter) writeMapByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+func (f *JsonFormatter) writeMapByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
+	if direct {
+		if ok, release := markAndCheck(rv, visited); !ok {
+			writeJSONString(b, "<cycle>")
+			return
+		} else {
+			defer release()
+		}
+	}
 	if rv.Type().Key().Kind() != reflect.String {
 		writeJSONString(b, "<unsupported_map_key>")
 		return
@@ -247,7 +249,16 @@ func (f *JsonFormatter) writeMapByReflect(b *bytes.Buffer, rv reflect.Value, dep
 	b.WriteByte('}')
 }
 
-func (f *JsonFormatter) writeSliceOrArrayByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+func (f *JsonFormatter) writeSliceOrArrayByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
+	if direct {
+		if ok, release := markAndCheck(rv, visited); !ok {
+			writeJSONString(b, "<cycle>")
+			return
+		} else {
+			defer release()
+		}
+	}
+
 	if rv.Type().Elem().Kind() == reflect.Uint8 {
 		n := rv.Len()
 		bs := make([]byte, n)
@@ -267,7 +278,16 @@ func (f *JsonFormatter) writeSliceOrArrayByReflect(b *bytes.Buffer, rv reflect.V
 	b.WriteByte(']')
 }
 
-func (f *JsonFormatter) writeStructByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+func (f *JsonFormatter) writeStructByReflect(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
+	if direct {
+		if ok, release := markAndCheck(rv, visited); !ok {
+			writeJSONString(b, "<cycle>")
+			return
+		} else {
+			defer release()
+		}
+	}
+
 	b.WriteByte('{')
 	t := rv.Type()
 
