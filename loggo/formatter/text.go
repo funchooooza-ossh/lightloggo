@@ -119,39 +119,47 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 
 	// --- Slower path using reflection for complex types ---
 	default:
-		rv := reflect.ValueOf(v)
-		if !rv.IsValid() {
+		f.renderByReflect(b, v, depth, visited)
+	}
+}
+
+func (f *TextFormatter) renderByReflect(b *bytes.Buffer, v any, depth int, visited map[uintptr]struct{}) {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		b.WriteString(f.colorizeValue("null"))
+		return
+	}
+
+	if ok, release := markAndCheck(rv, visited); !ok {
+		b.WriteString(f.colorizeValue("<cycle>"))
+		return
+	} else {
+		defer release()
+	}
+
+	switch rv.Kind() {
+
+	case reflect.Interface:
+		if rv.IsNil() {
 			b.WriteString(f.colorizeValue("null"))
 			return
 		}
 
-		if ok, release := markAndCheck(rv, visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
+		f.renderText(b, rv.Elem().Interface(), depth+1, visited)
 
-		switch rv.Kind() {
-		case reflect.Ptr, reflect.Interface:
-			if rv.IsNil() {
-				b.WriteString(f.colorizeValue("null"))
-				return
-			}
-			f.renderText(b, rv.Elem().Interface(), depth+1, visited)
+	// --- DELEGATION TO HELPER METHODS ---
+	case reflect.Ptr:
+		f.renderPtr(b, rv, depth, visited)
+	case reflect.Struct:
+		f.renderStruct(b, rv, depth, visited)
+	case reflect.Map:
+		f.renderMap(b, rv, depth, visited)
+	case reflect.Slice, reflect.Array:
+		f.renderSlice(b, rv, depth, visited)
 
-		// --- DELEGATION TO HELPER METHODS ---
-		case reflect.Struct:
-			f.renderStruct(b, rv, depth, visited)
-		case reflect.Map:
-			f.renderMap(b, rv, depth, visited)
-		case reflect.Slice, reflect.Array:
-			f.renderSlice(b, rv, depth, visited)
-
-		default:
-			// Fallback for any other unhandled primitive-like type.
-			b.WriteString(f.colorizeValue(fmt.Sprint(v)))
-		}
+	default:
+		// Fallback for any other unhandled primitive-like type.
+		b.WriteString(f.colorizeValue(fmt.Sprint(v)))
 	}
 }
 
@@ -180,6 +188,16 @@ func padLevel(level string) string {
 		return level + strings.Repeat(" ", minWidth-len(level))
 	}
 	return level
+}
+
+func (f *TextFormatter) renderPtr(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
+	if rv.IsNil() {
+		b.WriteString(f.colorizeValue("null"))
+		return
+	}
+
+	f.renderText(b, rv.Elem().Interface(), depth+1, visited)
+
 }
 
 // renderStruct handles the reflection-based rendering of struct types.
@@ -254,7 +272,8 @@ func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, 
 			b.WriteString(", ")
 		}
 		b.WriteString(f.colorizeKey(k))
-		b.WriteString(": ")
+		b.WriteByte(':')
+		b.WriteByte(' ')
 		f.renderText(b, rv.MapIndex(reflect.ValueOf(k)).Interface(), depth+1, visited)
 	}
 	b.WriteByte('}')
@@ -263,14 +282,13 @@ func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, 
 // renderSlice handles the reflection-based rendering of slice and array types.
 // It provides special handling for []byte for a more concise output.
 func (f *TextFormatter) renderSlice(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
-	// Special, concise representation for byte slices.
 	if rv.Type().Elem().Kind() == reflect.Uint8 {
 		b.WriteString(f.colorizeValue(fmt.Sprintf("[]byte(%d)", rv.Len())))
 		return
 	}
 	n := rv.Len()
 	b.WriteByte('[')
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 {
 			b.WriteString(", ")
 		}
