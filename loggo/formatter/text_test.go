@@ -373,7 +373,7 @@ func TestRenderComplexTypes(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
 				// We pass a reflect.Value to the helper function.
-				formatter.renderStruct(&b, reflect.ValueOf(tc.input), 0, visited)
+				formatter.renderStruct(&b, reflect.ValueOf(tc.input), 0, visited, true)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
@@ -402,7 +402,7 @@ func TestRenderComplexTypes(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
-				formatter.renderMap(&b, reflect.ValueOf(tc.input), 0, visited)
+				formatter.renderMap(&b, reflect.ValueOf(tc.input), 0, visited, true)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
@@ -410,6 +410,11 @@ func TestRenderComplexTypes(t *testing.T) {
 
 	// --- Sub-test for renderSlice ---
 	t.Run("renderSlice", func(t *testing.T) {
+
+		cyclicSlice := make([]any, 2)
+		cyclicSlice[0] = 100
+		cyclicSlice[1] = &cyclicSlice
+
 		testCases := []struct {
 			name     string
 			input    any
@@ -430,13 +435,18 @@ func TestRenderComplexTypes(t *testing.T) {
 				input:    []int{},
 				expected: "[]",
 			},
+			{
+				name:     "cyclic slice",
+				input:    cyclicSlice,
+				expected: "[100, <cycle>]",
+			},
 		}
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
-				formatter.renderSlice(&b, reflect.ValueOf(tc.input), 0, visited)
+				formatter.renderSlice(&b, reflect.ValueOf(tc.input), 0, visited, true)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
