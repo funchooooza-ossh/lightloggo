@@ -436,6 +436,9 @@ func TestRenderComplexTypes(t *testing.T) {
 
 	// --- Sub-test for renderMap ---
 	t.Run("renderMap", func(t *testing.T) {
+		cyclicMap := map[string]any{"a": 1}
+		cyclicMap["b"] = &cyclicMap
+
 		testCases := []struct {
 			name     string
 			input    any
@@ -450,6 +453,16 @@ func TestRenderComplexTypes(t *testing.T) {
 				name:     "map with unsupported key type",
 				input:    map[int]string{1: "one"},
 				expected: `<unsupported_map_key>`,
+			},
+			{
+				name:     "cyclic map",
+				input:    cyclicMap,
+				expected: "{a: 1, b: <cycle>}",
+			},
+			{
+				name:     "pointer to cyclic map",
+				input:    &cyclicMap,
+				expected: "{a: 1, b: <cycle>}",
 			},
 		}
 
@@ -493,6 +506,11 @@ func TestRenderComplexTypes(t *testing.T) {
 			{
 				name:     "cyclic slice",
 				input:    cyclicSlice,
+				expected: "[100, <cycle>]",
+			},
+			{
+				name:     "pointer to cyclic slice",
+				input:    &cyclicSlice,
 				expected: "[100, <cycle>]",
 			},
 		}
