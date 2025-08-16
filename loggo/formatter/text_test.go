@@ -130,6 +130,8 @@ func TestRenderText(t *testing.T) {
 		{"negative integer", -123, "-123"},
 		{"float", 3.14, "3.14"},
 		{"time.Duration", 5 * time.Second, "5s"},
+		{"uinptr", uintptr(5), "0x5"},
+		{"uint64", uint64(5), "5"},
 
 		// --- Containers ---
 		{"simple map", map[string]any{"key": "value"}, `{key: "value"}`},
