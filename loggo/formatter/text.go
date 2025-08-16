@@ -112,8 +112,10 @@ func (f *TextFormatter) renderText(b *bytes.Buffer, v any, depth int, visited ma
 		b.WriteString(f.colorizeValue(strconv.FormatBool(x)))
 	case int, int8, int16, int32, int64:
 		b.WriteString(f.colorizeValue(strconv.FormatInt(reflect.ValueOf(x).Int(), 10)))
-	case uint, uint8, uint16, uint32, uint64, uintptr:
+	case uint, uint8, uint16, uint32, uint64:
 		b.WriteString(f.colorizeValue(strconv.FormatUint(reflect.ValueOf(x).Uint(), 10)))
+	case uintptr:
+		b.WriteString(f.colorizeValue(fmt.Sprintf("0x%x", reflect.ValueOf(x).Uint())))
 	case float32, float64:
 		b.WriteString(f.colorizeValue(toFloatString(x)))
 
