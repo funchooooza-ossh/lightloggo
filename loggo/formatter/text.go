@@ -151,11 +151,11 @@ func (f *TextFormatter) renderByReflect(b *bytes.Buffer, v any, depth int, visit
 	case reflect.Ptr:
 		f.renderPtr(b, rv, depth, visited)
 	case reflect.Struct:
-		f.renderStruct(b, rv, depth, visited, false)
+		f.renderStruct(b, rv, depth, visited)
 	case reflect.Map:
-		f.renderMap(b, rv, depth, visited, false)
+		f.renderMap(b, rv, depth, visited)
 	case reflect.Slice, reflect.Array:
-		f.renderSlice(b, rv, depth, visited, false)
+		f.renderSlice(b, rv, depth, visited)
 
 	default:
 		// Fallback for any other unhandled primitive-like type.
@@ -203,16 +203,7 @@ func (f *TextFormatter) renderPtr(b *bytes.Buffer, rv reflect.Value, depth int, 
 // renderStruct handles the reflection-based rendering of struct types.
 // It respects `json` tags for field naming, skipping, and omitempty options.
 // Fields are sorted alphabetically by their effective key for stable output.
-func (f *TextFormatter) renderStruct(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
-	if direct {
-		if ok, release := markAndCheck(rv, visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
-	}
-
+func (f *TextFormatter) renderStruct(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
 	type kv struct {
 		key string
 		idx int
@@ -262,16 +253,7 @@ func (f *TextFormatter) renderStruct(b *bytes.Buffer, rv reflect.Value, depth in
 // renderMap handles the reflection-based rendering of map types.
 // It sorts maps by their keys to ensure a stable, deterministic output.
 // Only maps with string keys are fully rendered; others are marked as unsupported.
-func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
-	if direct {
-		if ok, release := markAndCheck(rv, visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
-	}
-
+func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
 	if rv.Type().Key().Kind() != reflect.String {
 		b.WriteString(f.colorizeValue("<unsupported_map_key>"))
 		return
@@ -299,16 +281,7 @@ func (f *TextFormatter) renderMap(b *bytes.Buffer, rv reflect.Value, depth int, 
 
 // renderSlice handles the reflection-based rendering of slice and array types.
 // It provides special handling for []byte for a more concise output.
-func (f *TextFormatter) renderSlice(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}, direct bool) {
-	if direct {
-		if ok, release := markAndCheck(rv, visited); !ok {
-			b.WriteString(f.colorizeValue("<cycle>"))
-			return
-		} else {
-			defer release()
-		}
-	}
-
+func (f *TextFormatter) renderSlice(b *bytes.Buffer, rv reflect.Value, depth int, visited map[uintptr]struct{}) {
 	if rv.Type().Elem().Kind() == reflect.Uint8 {
 		b.WriteString(f.colorizeValue(fmt.Sprintf("[]byte(%d)", rv.Len())))
 		return

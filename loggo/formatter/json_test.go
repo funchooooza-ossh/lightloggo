@@ -3,7 +3,6 @@ package formatter
 import (
 	"bytes"
 	"math"
-	"reflect"
 	"testing"
 )
 
@@ -275,7 +274,7 @@ func TestWriteSliceOrArrayByReflect(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
-				f.writeSliceOrArrayByReflect(&b, reflect.ValueOf(tc.input), tc.depth, visited, true)
+				f.writeJSON(&b, tc.input, 0, visited)
 
 				AssertEqualString(t, tc.expected, b.String())
 			})

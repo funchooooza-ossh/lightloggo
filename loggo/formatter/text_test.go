@@ -3,7 +3,6 @@ package formatter
 import (
 	"bytes"
 	"funchooooza-ossh/loggo/core"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -373,7 +372,7 @@ func TestRenderComplexTypes(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
 				// We pass a reflect.Value to the helper function.
-				formatter.renderStruct(&b, reflect.ValueOf(tc.input), 0, visited, true)
+				formatter.renderText(&b, tc.input, 0, visited)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
@@ -402,7 +401,7 @@ func TestRenderComplexTypes(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
-				formatter.renderMap(&b, reflect.ValueOf(tc.input), 0, visited, true)
+				formatter.renderText(&b, tc.input, 0, visited)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
@@ -446,7 +445,7 @@ func TestRenderComplexTypes(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				var b bytes.Buffer
 				visited := make(map[uintptr]struct{})
-				formatter.renderSlice(&b, reflect.ValueOf(tc.input), 0, visited, true)
+				formatter.renderText(&b, tc.input, 0, visited)
 				AssertEqualString(t, tc.expected, b.String())
 			})
 		}
