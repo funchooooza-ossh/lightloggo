@@ -324,7 +324,8 @@ func TestRenderComplexTypes(t *testing.T) {
 	// --- Test Setup ---
 	// A default formatter is sufficient as we are not testing colors here,
 	// but the core rendering logic.
-	formatter := NewTextFormatter(nil, nil)
+	maxDepth := 4
+	formatter := NewTextFormatter(nil, &maxDepth)
 
 	// --- Sub-test for renderStruct ---
 	t.Run("renderStruct", func(t *testing.T) {
@@ -338,6 +339,23 @@ func TestRenderComplexTypes(t *testing.T) {
 			FieldA int    `json:"a_field"`
 			FieldB bool   `json:"-"` // Should be skipped due to "-" tag.
 			FieldD string `json:"d_field,omitempty"`
+		}
+		//cylcic struct definition
+		type cyclicStruct struct {
+			FieldA string
+			FieldB *cyclicStruct
+		}
+		cyclic := cyclicStruct{}
+		cyclic.FieldB = &cyclic
+		cyclic.FieldA = "public field"
+
+		//deep struct definition
+		type deepStruct struct {
+			FieldA map[string]any
+		}
+
+		deep := deepStruct{
+			FieldA: map[string]any{"a": map[string]any{"b": map[string]any{"c": map[string]any{"d": "e"}}}},
 		}
 
 		testCases := []struct {
@@ -364,6 +382,44 @@ func TestRenderComplexTypes(t *testing.T) {
 				name:     "tagged struct with omitempty (non-zero value)",
 				input:    taggedStruct{FieldA: 1, FieldC: "valC", FieldD: "valD"},
 				expected: `{a_field: 1, c_field: "valC", d_field: "valD"}`,
+			},
+			//edge cases
+			//cyclic
+			// --- Case 1: Pointer Input (The Idiomatic Case) ---
+			// Here, we pass a pointer (&cyclic) to the formatter.
+			// The cycle detection mechanism can immediately access the struct's memory address
+			// via the pointer. This address is registered in the 'visited' map *before* the
+			// renderer starts processing the struct's fields.
+			// As a result, the cycle is detected "early," as soon as the inner 'FieldB' pointer
+			// is encountered again. This prevents any part of the nested struct from being rendered
+			// and leads to the clean, expected output.
+			{
+				name:     "pointer to cyclic struct",
+				input:    &cyclic,
+				expected: `{FieldA: "public field", FieldB: <cycle>}`,
+			},
+			// --- Case 2: Value Input (The Go Edge Case) ---
+			// Here, we pass the struct by value.
+			// Due to Go's pass-by-value semantics (especially when passing to an `any` interface),
+			// the formatter receives a *non-addressable copy* of the struct. The cycle detector
+			// cannot get its memory address initially (reflect.CanAddr() returns false).
+			// Therefore, rendering begins without the struct being marked as "visited".
+			// The struct's address is only discovered and registered when the renderer encounters
+			// the internal pointer field ('FieldB') for the first time.
+			// This leads to "late" detection: the struct is rendered one level deep before the
+			// cycle is finally caught on the second encounter of the 'FieldB' pointer.
+			// This behavior is not a bug in the formatter, but an expected consequence of
+			// Go's reflection and memory model limitations. The primary goal—preventing an
+			// infinite loop—is still achieved.
+			{
+				name:     "cyclic struct",
+				input:    cyclic,
+				expected: "{FieldA: \"public field\", FieldB: {FieldA: \"public field\", FieldB: <cycle>}}",
+			},
+			{
+				name:     "deep struct",
+				input:    deep,
+				expected: "{FieldA: {a: {b: {c: <max_depth>}}}}",
 			},
 		}
 
